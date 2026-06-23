@@ -20,7 +20,16 @@ English · [简体中文](README.zh-CN.md)
 - Claude Code 2.x. The official native binary install works best; npm/node installs still display and monitor sessions but lose the process-level fallback (sessions already open before install appear after a restart; jump degrades to activating the host app).
 - The 5h / 7d quota bars require a subscription account (Pro / Max).
 
-## Build
+## Install
+
+Download the latest `CC-HUD.dmg` from the [**Releases**](https://github.com/shiyaming1994/cc-hud/releases) page, then:
+
+1. Open the DMG and drag **CC HUD.app** into **Applications**.
+2. Clear the Gatekeeper quarantine (the app isn't notarized) — **either** run `xattr -cr "/Applications/CC HUD.app"` in Terminal, **or** double-click the app once and click **"Open Anyway"** in **System Settings → Privacy & Security**.
+
+Requires macOS 15+.
+
+## Build from source
 
 ```bash
 git clone https://github.com/shiyaming1994/cc-hud.git
