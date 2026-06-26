@@ -78,10 +78,16 @@ public final class DailyTokenScanner: @unchecked Sendable {
         }
         cache = cache.filter { liveFiles.contains($0.key) }   // 滑出 24h 窗口的文件淘汰
 
+        // 裁掉非当天条目：长会话文件持续追加，不裁剪 entries 会把历史行无界堆在内存里。
+        // 非当天条目本就不计入合计，安全删除（offset 不动，下次增量解析照常续）。
+        for key in Array(cache.keys) {
+            cache[key]?.entries.removeAll { $0.ts < startISO }
+        }
+
         var seen = Set<String>()
         var total = 0
         for fc in cache.values {
-            for e in fc.entries where e.ts >= startISO && e.ts < endISO {
+            for e in fc.entries where e.ts < endISO {
                 if seen.insert(e.id).inserted { total += e.tokens }
             }
         }
