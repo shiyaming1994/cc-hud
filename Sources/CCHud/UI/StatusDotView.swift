@@ -3,7 +3,6 @@ import CCHudCore
 
 struct StatusDotView: View {
     let status: SessionStatus
-    @State private var pulse = false
 
     // 实心半盘 ◐ 的 conic 渐变（半亮/半淡）。常量：每帧只变旋转角，渐变本身不重建。
     private static let workingGradient = AngularGradient(
@@ -17,10 +16,10 @@ struct StatusDotView: View {
 
     var body: some View {
         ZStack {
-            if status == .working {
-                // 原型实心半盘 ◐（conic 半亮/半淡）。用 TimelineView 连续驱动旋转，而不是
-                // .rotationEffect + repeatForever——repeatForever 在这套布局里会让图标随时间横移、飘出胶囊
-                // （本项目 QuestionViews 也特意规避 repeatForever，用 TimelineView 离散驱动）。
+            switch status {
+            case .working:
+                // 实心半盘 ◐（conic 半亮/半淡）：TimelineView 连续驱动旋转，而不是
+                // .rotationEffect + repeatForever——后者在这套布局里会让图标随时间横移、飘出胶囊。
                 TimelineView(.animation) { tl in
                     let angle = tl.date.timeIntervalSinceReferenceDate
                         .truncatingRemainder(dividingBy: 1.3) / 1.3 * 360.0
@@ -29,24 +28,28 @@ struct StatusDotView: View {
                         .frame(width: 9, height: 9)
                         .rotationEffect(.degrees(angle))
                 }
-            } else {
+            case .permission:
+                // 权限脉冲：扩散圈。同样用 TimelineView 离散驱动（与 working 一致地规避 repeatForever，
+                // 后者作用在常驻视图上会持续重绘、且与本布局的隐式动画相互干扰）。
+                TimelineView(.animation) { tl in
+                    let t = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.1) / 1.1
+                    let eased = t * (2 - t)   // easeOut：快扩散、慢收尾
+                    ZStack {
+                        Circle().fill(Theme.permission).frame(width: 8, height: 8)
+                        Circle()
+                            .stroke(Theme.permission.opacity(0.55), lineWidth: 2)
+                            .scaleEffect(1.0 + eased * 1.1)
+                            .opacity(0.8 * (1 - eased))
+                            .frame(width: 8, height: 8)
+                    }
+                }
+            default:
                 Circle()
                     .fill(Theme.statusColor(status))
-                    .frame(width: 8, height: 8)   // 原型 .dot i 基础点 8px；working 圆环 9px
+                    .frame(width: 8, height: 8)   // 原型 .dot i 基础点 8px
                     .opacity(status == .dead ? 0.55 : 1)
-                    .overlay {
-                        if status == .permission {
-                            Circle()
-                                .stroke(Theme.permission.opacity(0.55), lineWidth: 2)
-                                .scaleEffect(pulse ? 2.1 : 1.0)
-                                .opacity(pulse ? 0 : 0.8)
-                                .animation(.easeOut(duration: 1.1).repeatForever(autoreverses: false), value: pulse)
-                        }
-                    }
             }
         }
         .frame(width: 9, height: 9)
-        .onAppear { pulse = (status == .permission) }
-        .onChange(of: status) { _, new in pulse = (new == .permission) }
     }
 }
