@@ -16,8 +16,15 @@ struct HUDRootView: View {
         return arr
     }
 
+    // 收起药丸（M 档）= 整颗胶囊（原型 .pill border-radius:999，全圆端）；列表/展开 = 12 圆角矩形
+    private var pillShape: AnyShape {
+        stage == 0 ? AnyShape(Capsule()) : AnyShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
     var body: some View {
         let items = store.displaySessions(manualOrder: manualOrder)
+        // 全空闲（无 working/permission）→ 玻璃更通透（.calm）
+        let calm = !items.contains { $0.session.status.isActive }
         Group {
             switch stage {
             case 0:
@@ -25,7 +32,8 @@ struct HUDRootView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { stage = 1 }
                     .gesture(WindowDragGesture())   // 最小档整体 = 移动面板
-                    .fixedSize()
+                    .frame(width: 235)              // 整颗胶囊定宽：长名截断、计数靠右、图标不动
+                    .fixedSize(horizontal: false, vertical: true)
             case 1:
                 // 行：点击跳转 / 拖拽换序；额度区：点击展开 / 拖动移面板
                 PillListView(items: items, account: store.account,
@@ -52,12 +60,16 @@ struct HUDRootView: View {
         }
         .background {
             ZStack {
-                VisualEffectView()
-                Theme.glass
+                // .hudWindow：经典深色毛玻璃，会透出并模糊桌面（underWindowBackground 偏不透明、不透桌面）
+                VisualEffectView(material: .hudWindow,
+                                 cornerRadius: Theme.radius, isCapsule: stage == 0)
+                // 原型 --glass: rgba(22,22,25,0.72)（全空闲 .calm → 0.60 更通透）
+                (calm ? Theme.glassCalm : Theme.glass)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).stroke(Theme.hairline, lineWidth: 1))
+        .clipShape(pillShape)
+        .overlay(pillShape.stroke(Theme.hairline, lineWidth: 1))
+        // 投影由系统窗口投影负责（HUDPanel.hasShadow）——沿圆角玻璃描柔和投影，常驻、无硬边
         .onGeometryChange(for: CGSize.self) { $0.size } action: { onSizeChange($0) }
     }
 

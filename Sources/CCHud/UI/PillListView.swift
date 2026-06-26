@@ -69,6 +69,7 @@ struct PillListView: View {
         .shadow(color: .black.opacity(dragging ? 0.35 : 0), radius: 8, y: 3)
         .animation(.easeOut(duration: 0.15), value: dragging)
         .animation(.easeOut(duration: 0.6), value: isJustDone(s.id))
+        .rowHover(radius: 6)   // 悬停高亮 + 小手（点击跳转）
         .contentShape(Rectangle())
         .onTapGesture { onRowTap(s) }
     }

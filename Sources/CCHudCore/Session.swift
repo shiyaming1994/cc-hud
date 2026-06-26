@@ -12,6 +12,9 @@ public enum SessionStatus: String, Sendable, CaseIterable {
         case .dead: return 3
         }
     }
+
+    /// 活跃中：working 或 permission（有正在进行的一轮）
+    public var isActive: Bool { self == .working || self == .permission }
 }
 
 public struct Session: Identifiable, Sendable {

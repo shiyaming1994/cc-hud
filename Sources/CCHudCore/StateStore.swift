@@ -118,7 +118,7 @@ public final class StateStore {
             s.permissionCommand = nil
         case "Stop":
             resolveQuestion(&s)
-            let wasActive = (s.status == .working || s.status == .permission)
+            let wasActive = s.status.isActive
             s.status = .idle
             s.activity = "空闲"
             s.permissionCommand = nil

@@ -14,7 +14,7 @@ struct PillMinimalView: View {
     private let clock = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     private var active: [DisplaySession] {
-        items.filter { $0.session.status == .working || $0.session.status == .permission }
+        items.filter { $0.session.status.isActive }
     }
     private var counts: [(SessionStatus, Int)] {
         SessionStatus.allCases.compactMap { st in
@@ -25,23 +25,22 @@ struct PillMinimalView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if active.isEmpty {
-                Circle().fill(Theme.idle).frame(width: 6, height: 6)
-                Text("空闲").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.txSecondary)
-            } else {
-                let cur = active[idx % active.count]
-                StatusDotView(status: cur.session.status)
-                Text(cur.session.projectName)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Theme.txPrimary)
-                    .lineLimit(1)
-                if let dup = cur.dup {
-                    Text("#\(dup)").font(.system(size: 11)).foregroundStyle(Theme.txFaint)
+            // 轮播区：切换终端时整条上下滚动（旧项上滑移出 / 新项从下方滑入，"翻一页"感）。
+            // move + opacity 组合：用淡出收尾，溢出部分自然隐没，外层圆角再兜底裁切。
+            ZStack(alignment: .leading) {
+                if active.isEmpty {
+                    idleSegment
+                } else {
+                    terminalSegment(active[idx % active.count])
+                        .id(idx)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity),
+                            removal: .move(edge: .top).combined(with: .opacity)))
                 }
-                Text(timerInterval: cur.session.roundStart...Date.distantFuture, countsDown: false)
-                    .font(Theme.mono).monospacedDigit()
-                    .foregroundStyle(Theme.statusColor(cur.session.status))
             }
+            // 占满左侧余量：胶囊整体定宽（见 HUDRootView），短名尾部留白、长名由名字截断吸收，
+            // 计数/今日 token 始终靠右恒定 —— 切换终端时宽度不变、图标不左右飘。
+            .frame(maxWidth: .infinity, alignment: .leading)
             if !counts.isEmpty {
                 Divider().frame(height: 10).overlay(Theme.hairline)
                 HStack(spacing: 6) {
@@ -80,11 +79,41 @@ struct PillMinimalView: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .onReceive(cycleTimer) { _ in
-            if active.count > 1 { idx = (idx + 1) % active.count }
+            if active.count > 1 {
+                withAnimation(.easeInOut(duration: 0.34)) { idx = (idx + 1) % active.count }
+            }
         }
         .onReceive(clock) { now = $0 }
         // 休眠唤醒：立即重算告警窗口（投影依赖当前时间）
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didWakeNotification)) { _ in now = Date() }
+    }
+
+    @ViewBuilder private var idleSegment: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Theme.idle).frame(width: 6, height: 6)
+            Text("空闲").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.txSecondary)
+        }
+    }
+
+    @ViewBuilder private func terminalSegment(_ cur: DisplaySession) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            StatusDotView(status: cur.session.status)
+                // 基线对齐：圆点中心落到名字 x-height 视觉中线（见 Theme.dotBaselineRise）
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + Theme.dotBaselineRise(forFontSize: 12.5) }
+            Text(cur.session.projectName)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Theme.txPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)   // 名字占满：把时间推到固定右位、不再跟着名字走
+            if let dup = cur.dup {
+                Text("#\(dup)").font(.system(size: 11)).foregroundStyle(Theme.txFaint).fixedSize()
+            }
+            Text(timerInterval: cur.session.roundStart...Date.distantFuture, countsDown: false)
+                .font(Theme.mono).monospacedDigit()
+                .foregroundStyle(Theme.statusColor(cur.session.status))
+                .fixedSize()   // 时间不被压缩
+        }
     }
 }

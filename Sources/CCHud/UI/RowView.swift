@@ -6,15 +6,27 @@ import CCHudCore
 struct RowView: View {
     let item: DisplaySession
     var isJustDone: Bool
+    @State private var hovering = false
 
     private var s: Session { item.session }
+
+    /// 行底色（styles.css .row 系列）：完成高亮 > 悬停 > 权限常驻底 > 透明。
+    /// 权限行常驻橙底（--st-permission-soft），悬停加深到 0.22；普通行悬停 = --row-hover。
+    private var bgColor: Color {
+        if isJustDone { return Theme.idle.opacity(0.3) }
+        let perm = s.status == .permission
+        if hovering { return perm ? Theme.permissionHover : Theme.rowHover }
+        return perm ? Theme.permissionSoft : .clear
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
-                StatusDotView(status: s.status)
-                    .frame(width: 14)
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    StatusDotView(status: s.status)
+                        .frame(width: 14)
+                        // 基线对齐：圆点中心落到名字 x-height 视觉中线（见 Theme.dotBaselineRise）
+                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + Theme.dotBaselineRise(forFontSize: 13) }
                     Text(s.projectName)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Theme.txPrimary)
@@ -46,9 +58,12 @@ struct RowView: View {
         }
         .padding(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 8))
         .frame(minHeight: 30)
-        .background(isJustDone ? Theme.idle.opacity(0.3) : .clear)
+        .background(RoundedRectangle(cornerRadius: 7).fill(bgColor))
         .clipShape(RoundedRectangle(cornerRadius: 7))
+        // HoverReporter 放在 clip 之后（不被裁），accessory app 非 active 也能悬停高亮
+        .background(HoverReporter { hovering = $0 })
         .animation(.easeOut(duration: 0.6), value: isJustDone)
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
     @ViewBuilder private var timeView: some View {

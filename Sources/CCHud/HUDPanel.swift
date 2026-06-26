@@ -21,10 +21,11 @@ final class HUDPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = true   // 系统窗口投影：沿圆角玻璃描一圈柔和投影，常驻、干净
         isMovableByWindowBackground = false  // 移窗只在指定区域（WindowDragGesture），行区留给拖拽排序
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
+        acceptsMouseMovedEvents = true   // 配合 .activeAlways tracking：非 active 也收 hover（行高亮）
         contentView = NSHostingView(rootView: rootView)
 
         applyAnchor(savedAnchor() ?? defaultAnchor())
