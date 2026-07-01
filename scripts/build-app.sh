@@ -32,8 +32,8 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
     <key>CFBundleIdentifier</key><string>io.github.shiyaming.cc-hud</string>
     <key>CFBundleExecutable</key><string>CCHud</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.1.8</string>
-    <key>CFBundleVersion</key><string>13</string>
+    <key>CFBundleShortVersionString</key><string>1.2.0</string>
+    <key>CFBundleVersion</key><string>14</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>CFBundleIconFile</key><string>AppIcon</string>
