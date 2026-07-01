@@ -1,4 +1,5 @@
 import SwiftUI
+import CCHudCore
 
 /// 燃尽计预警卡（设计稿「方向 B · 燃尽计」翻译）：燃料计 + 4 格全字段 + 断档高亮，
 /// 严重度按断档时长三档配色（轻金 / 中橙 / 重红）。屏幕上方居中、纯淡入淡出。
@@ -36,7 +37,9 @@ struct BurnoutAlertView: View {
 
     var body: some View {
         VStack {
-            card.opacity(model.shown ? 1 : 0)
+            card
+                .opacity(model.shown ? 1 : 0)
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { model.cardRect = $0 }
             Spacer(minLength: 0)
         }
         .padding(.top, 120)   // 不贴顶，往下挪一点

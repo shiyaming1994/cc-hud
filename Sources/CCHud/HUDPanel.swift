@@ -11,6 +11,15 @@ final class HUDPanel: NSPanel {
     private static let legacyAnchorKey = "hud.anchorTopRight"  // v1 全局绝对坐标，读到即迁移
     private var programmaticMove = false
     private var settleTask: Task<Void, Never>?
+    /// 悬停态由 AppDelegate 的鼠标监视器经此写入（用可见玻璃 frame 命中判定，不依赖会被内容缩放扰动的 tracking area）。
+    weak var hoverState: HoverState?
+    private var isHovering = false
+    /// 可见玻璃当前高度（静息 < 窗口高；展开 = 窗口高）。窗口恒为展开尺寸、下方留透明预留区，
+    /// 所以：悬停命中区按此高度（不含预留，避免在空白处误触发）、预留区 hitTest 穿透点击、系统阴影按此贴合。
+    /// 默认 = 启动窗口高，首帧测量后即校正。
+    var visibleHeight: CGFloat = 120
+    /// 收起判定的外扩量：贴边小幅移动落在此余量内不收起（空间迟滞，避免边缘横跳）
+    private let hoverMargin: CGFloat = 24
 
     init(rootView: some View) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 280, height: 120),
@@ -25,8 +34,12 @@ final class HUDPanel: NSPanel {
         isMovableByWindowBackground = false  // 移窗只在指定区域（WindowDragGesture），行区留给拖拽排序
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
-        acceptsMouseMovedEvents = true   // 配合 .activeAlways tracking：非 active 也收 hover（行高亮）
-        contentView = NSHostingView(rootView: rootView)
+        acceptsMouseMovedEvents = true   // app 处于 active 时，本地鼠标监视器靠它收到 mouseMoved（非 active 走全局监视器）
+        // PassThroughHostingView：窗口恒为展开尺寸，静息时玻璃只占顶部、下方是透明预留区；
+        // 该子类让预留区的点击穿透到下方窗口（否则会挡住终端）。
+        let host = PassThroughHostingView(rootView: rootView)
+        host.layerContentsRedrawPolicy = .duringViewResize
+        contentView = host
 
         applyAnchor(savedAnchor() ?? defaultAnchor())
 
@@ -65,16 +78,49 @@ final class HUDPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    /// SwiftUI 内容尺寸变化 → 以持久化锚点（右上角）重排 frame，向左/向下生长。
+    /// 悬停判定入口（AppDelegate 的鼠标监视器在每次鼠标移动时调用，传入屏幕坐标）。
+    /// 命中区 = 顶右锚点向下 `可见玻璃高度` 的矩形（**不含**下方透明预留区，故在空白处不会误触发）；
+    /// 已悬停时四周外扩 margin 形成迟滞死区，贴边小幅移动不横跳。展开时玻璃填满窗口 → 命中区即整窗。
+    func updateHover(at point: NSPoint) {
+        // 行悬停（每次移动都判定）：屏幕鼠标 → 窗口内容坐标（左上原点、y 向下），命中哪行矩形就高亮哪行。
+        // 单一真相 = 恰好一行（或无），免疫 NSTrackingArea 漏 enter/exit 与探针重复导致的"乱亮/多行同亮"。
+        if let hoverState {
+            let g = frame.windowContentPoint(fromScreen: point)
+            let row = hoverState.rowRects.first { $0.value.contains(g) }?.key
+            if hoverState.hoveredRow != row { hoverState.hoveredRow = row }
+        }
+        // 页脚展开悬停（迟滞判定，仅在跨越可见玻璃边界时翻转）
+        let anchor = savedAnchor() ?? CGPoint(x: frame.maxX, y: frame.maxY)
+        let h = max(visibleHeight, 1)
+        let m = isHovering ? hoverMargin : 0
+        let inside = NSRect(x: anchor.x - frame.width - m, y: anchor.y - h - m,
+                            width: frame.width + 2 * m, height: h + 2 * m).contains(point)
+        guard inside != isHovering else { return }
+        isHovering = inside
+        hoverState?.footerExpanded = inside   // 只翻转内容展开态；窗口尺寸不变，内容在窗口内平滑伸缩
+    }
+
+    /// SwiftUI 内容尺寸（= 展开态尺寸，由隐藏探针恒定给出）变化 → 重排 frame 向左/向下生长（瞬时）。
+    /// 固定**当前**右上角（不回存档锚点，避免夹取误差导致上下跳）；整数像素防亚像素漂移；重算阴影。
+    /// 悬停不改变此尺寸（探针恒展开），故此函数在悬停时空跑；只在行数增减 / 换档时真正重排。
     func applyContentSize(_ size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }
-        let anchor = savedAnchor() ?? CGPoint(x: frame.maxX, y: frame.maxY)
-        let newFrame = NSRect(x: anchor.x - size.width, y: anchor.y - size.height,
-                              width: size.width, height: size.height)
+        let maxX = frame.maxX.rounded(), maxY = frame.maxY.rounded()
+        let w = size.width.rounded(), h = size.height.rounded()
+        let newFrame = NSRect(x: maxX - w, y: maxY - h, width: w, height: h)
         guard newFrame != frame else { return }
         programmaticMove = true
         setFrame(newFrame, display: true)
+        invalidateShadow()
         programmaticMove = false
+    }
+
+    /// 可见玻璃高度变化（含悬停动画每帧）→ 更新命中区基准、预留区穿透阈值（PassThroughHostingView 读 visibleHeight）、
+    /// 并重算系统阴影使其随玻璃高度伸缩（窗口不缩放，阴影只能靠 invalidate 跟上玻璃 alpha）。
+    func setVisibleHeight(_ h: CGFloat) {
+        guard h > 1, abs(h - visibleHeight) > 0.5 else { return }
+        visibleHeight = h
+        invalidateShadow()
     }
 
     /// 用户拖动 → 记录锚点（屏 UUID + 屏内偏移）。程序性 setFrame 与系统搬窗都不算：
@@ -129,6 +175,14 @@ final class HUDPanel: NSPanel {
     }
 }
 
+extension NSRect {
+    /// 屏幕坐标(左下原点)的点 → 以本 rect 为窗口时的内容坐标(左上原点、y 向下)，
+    /// 用于和 SwiftUI `.frame(in: .global)` 上报的矩形做命中判定。HUD 与预警卡共用。
+    func windowContentPoint(fromScreen p: NSPoint) -> CGPoint {
+        CGPoint(x: p.x - minX, y: maxY - p.y)
+    }
+}
+
 private extension NSScreen {
     /// 物理显示器 UUID（EDID 派生）：同一台显示器拔插、睡眠、换口都稳定；
     /// NSScreenNumber(displayID) 每次插拔可能变，不能当持久身份。
@@ -137,5 +191,18 @@ private extension NSScreen {
               let u = CGDisplayCreateUUIDFromDisplayID(n.uint32Value)?.takeRetainedValue()
         else { return nil }
         return CFUUIDCreateString(nil, u) as String
+    }
+}
+
+/// 宿主视图：窗口恒为展开尺寸，静息时可见玻璃只占顶部、其下是透明预留区。
+/// 让预留区的点击**穿透**到下方窗口（不然会挡住终端）；玻璃区（顶部 visibleHeight 内）正常命中 SwiftUI 子视图。
+final class PassThroughHostingView<V: View>: NSHostingView<V> {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // 玻璃顶对齐，占顶部 visibleHeight；其下透明预留区 → 返回 nil 穿透
+        let opaque = (window as? HUDPanel)?.visibleHeight ?? .greatestFiniteMagnitude
+        let local = convert(point, from: superview)
+        let fromTop = isFlipped ? local.y : bounds.height - local.y
+        if fromTop > opaque + 0.5 { return nil }
+        return super.hitTest(point)
     }
 }

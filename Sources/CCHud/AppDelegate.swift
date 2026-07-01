@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var livenessTimer: Timer?
     var scanTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
+    private let hoverState = HoverState()
+    private var hoverMonitors: [Any] = []
 
     private var claudeDir: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
@@ -31,6 +33,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ].compactMap { $0 }
         let src = candidates.first { FileManager.default.fileExists(atPath: $0.path) } ?? candidates[0]
         return Installer(claudeDir: claudeDir, emitSourceURL: src)
+    }
+
+    /// 悬停判定：用「鼠标位置 vs 窗口 frame」而非随内容缩放的 tracking area，根除展开/收起抖动环。
+    /// 鼠标移动时复核；frame 命中即悬停。窗口缩放本身不产生鼠标事件 → 不会误翻悬停态。
+    /// 全局监视器覆盖 app 非 active（终端聚焦）时；本地监视器覆盖 app active 时。
+    private func installHoverMonitor(panelRef: WeakPanelRef) {
+        // 只听 .mouseMoved：拖动时是 .leftMouseDragged，不应触发悬停展开（会和拖动打架）。
+        let mask: NSEvent.EventTypeMask = [.mouseMoved]
+        let global = NSEvent.addGlobalMonitorForEvents(matching: mask) { _ in
+            MainActor.assumeIsolated {
+                panelRef.panel?.updateHover(at: NSEvent.mouseLocation)
+            }
+        }
+        let local = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
+            MainActor.assumeIsolated {
+                panelRef.panel?.updateHover(at: NSEvent.mouseLocation)
+            }
+            return event
+        }
+        if let global { hoverMonitors.append(global) }
+        if let local { hoverMonitors.append(local) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -111,11 +134,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panelRef = WeakPanelRef()
         let root = HUDRootView(store: store,
                                onRowTap: { session in JumpService.jump(to: session) },
-                               onSizeChange: { size in panelRef.panel?.applyContentSize(size) })
+                               onSizeChange: { size in panelRef.panel?.applyContentSize(size) },
+                               onVisibleHeightChange: { h in panelRef.panel?.setVisibleHeight(h) },
+                               hover: hoverState)
         let panel = HUDPanel(rootView: root)
+        panel.hoverState = hoverState
         panelRef.panel = panel
         panel.orderFrontRegardless()
         self.panel = panel
+        installHoverMonitor(panelRef: panelRef)
 
         // 4. 菜单栏
         statusItem = StatusItemController(

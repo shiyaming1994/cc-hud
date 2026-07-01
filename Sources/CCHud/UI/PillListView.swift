@@ -17,8 +17,8 @@ struct PillListView: View {
     var body: some View {
         let byId = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         VStack(alignment: .leading, spacing: 0) {
-            // .el-scroll { max-height: 200px } —— 行多时内部滚动
-            CappedScroll(cap: 200) {
+            // 超过 4 行才滚动（行高 24pt，无行距）；置顶行变化（完成/发消息冒顶）→ 自动滑回最顶
+            CappedScroll(cap: 24 * 4, scrollTopToken: items.first?.id) {
                 ReorderableRows(ids: items.map(\.id), enabled: true, onReorder: onReorder) { id, dragging in
                     if let item = byId[id] {
                         rowView(item, dragging: dragging)
@@ -69,7 +69,7 @@ struct PillListView: View {
         .shadow(color: .black.opacity(dragging ? 0.35 : 0), radius: 8, y: 3)
         .animation(.easeOut(duration: 0.15), value: dragging)
         .animation(.easeOut(duration: 0.6), value: isJustDone(s.id))
-        .rowHover(radius: 6)   // 悬停高亮 + 小手（点击跳转）
+        .rowHover(id: s.id, radius: 6)   // 悬停高亮（鼠标位置判定，见 HoverState.hoveredRow）
         .contentShape(Rectangle())
         .onTapGesture { onRowTap(s) }
     }

@@ -3,16 +3,6 @@ import Foundation
 public enum SessionStatus: String, Sendable, CaseIterable {
     case permission, working, idle, dead
 
-    /// 紧急度，越小越靠前
-    public var urgency: Int {
-        switch self {
-        case .permission: return 0
-        case .working: return 1
-        case .idle: return 2
-        case .dead: return 3
-        }
-    }
-
     /// 活跃中：working 或 permission（有正在进行的一轮）
     public var isActive: Bool { self == .working || self == .permission }
 }
@@ -35,6 +25,9 @@ public struct Session: Identifiable, Sendable {
     public var ctxPct: Double?
     public var model: String?
     public var justDoneUntil: Date?
+    /// MRU 排序键：只在「你发消息(UserPromptSubmit)」或「跑完一轮(Stop)」时刷新；跑工具/思考中一概不动。
+    /// nil = 从没交互过（新发现的空闲行）→ 排在自动区最底。见 StateStore.displaySessions。
+    public var mruAt: Date?
     public var deadSince: Date?
     public var compactStartedAt: Date? = nil   // 手动 /compact 起点（PreCompact manual）
     public var questionPendingAt: Date? = nil  // AskUserQuestion 等待选择起点（去重 + 提示生命周期）
@@ -47,6 +40,7 @@ public struct Session: Identifiable, Sendable {
                 pendingCommand: String? = nil, permissionCommand: String? = nil,
                 roundStart: Date = Date(), lastEventAt: Date = Date(), createdAt: Date = Date(),
                 ctxPct: Double? = nil, model: String? = nil, justDoneUntil: Date? = nil,
+                mruAt: Date? = nil,
                 deadSince: Date? = nil, compactStartedAt: Date? = nil, questionPendingAt: Date? = nil) {
         self.id = id
         self.cwd = cwd
@@ -65,6 +59,7 @@ public struct Session: Identifiable, Sendable {
         self.ctxPct = ctxPct
         self.model = model
         self.justDoneUntil = justDoneUntil
+        self.mruAt = mruAt
         self.deadSince = deadSince
         self.compactStartedAt = compactStartedAt
         self.questionPendingAt = questionPendingAt

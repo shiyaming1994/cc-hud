@@ -6,9 +6,10 @@ import CCHudCore
 struct RowView: View {
     let item: DisplaySession
     var isJustDone: Bool
-    @State private var hovering = false
+    @EnvironmentObject private var hover: HoverState
 
     private var s: Session { item.session }
+    private var hovering: Bool { hover.hoveredRow == item.id }
 
     /// 行底色（styles.css .row 系列）：完成高亮 > 悬停 > 权限常驻底 > 透明。
     /// 权限行常驻橙底（--st-permission-soft），悬停加深到 0.22；普通行悬停 = --row-hover。
@@ -44,7 +45,7 @@ struct RowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 ctxView
                 timeView
-                    .frame(minWidth: 30, alignment: .trailing)
+                    .frame(width: 42, alignment: .trailing)   // 固定宽（不自动增宽，避免随秒数变化的抖动/样式问题）
             }
             if s.status == .permission, let cmd = s.permissionCommand {
                 HStack(spacing: 5) {
@@ -60,8 +61,8 @@ struct RowView: View {
         .frame(minHeight: 30)
         .background(RoundedRectangle(cornerRadius: 7).fill(bgColor))
         .clipShape(RoundedRectangle(cornerRadius: 7))
-        // HoverReporter 放在 clip 之后（不被裁），accessory app 非 active 也能悬停高亮
-        .background(HoverReporter { hovering = $0 })
+        // 行矩形上报（clip 之后不被裁）：鼠标位置命中判定悬停，取代非 active app 下易漏事件的 NSTrackingArea
+        .reportsRowRect(id: item.id)
         .animation(.easeOut(duration: 0.6), value: isJustDone)
         .animation(.easeOut(duration: 0.12), value: hovering)
     }
@@ -86,7 +87,7 @@ struct RowView: View {
 
     @ViewBuilder private var ctxView: some View {
         if let ctx = s.ctxPct {
-            HStack(spacing: 5) {
+            HStack(spacing: 3) {   // 进度条与 % 收紧成一组，与后面的时间自然分开（不再额外加间距）
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.white.opacity(0.12))

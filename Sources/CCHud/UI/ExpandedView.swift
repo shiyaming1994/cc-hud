@@ -31,8 +31,8 @@ struct ExpandedView: View {
             .onTapGesture(perform: onHeaderTap)
             .gesture(WindowDragGesture())   // 头部 = 移动面板的把手
 
-            // .w-list { max-height: 264px } —— 行多时内部滚动
-            CappedScroll(cap: 264) {
+            // 超过 4 行才滚动（行高 30pt，无行距）；置顶行变化（完成/发消息冒顶）→ 自动滑回最顶
+            CappedScroll(cap: 30 * 4, scrollTopToken: items.first?.id) {
                 ReorderableRows(ids: items.map(\.id), enabled: true, onReorder: onReorder) { id, dragging in
                     if let item = byId[id] {
                         RowView(item: item, isJustDone: isJustDone(item.id))

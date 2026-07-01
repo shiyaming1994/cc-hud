@@ -81,6 +81,7 @@ public final class StateStore {
             s.status = .working
             s.activity = "思考中"
             s.roundStart = now
+            s.mruAt = now              // 你发消息 = 用了它 → MRU 置顶（规则①）
             s.pendingCommand = nil
             s.permissionCommand = nil
             s.justDoneUntil = nil
@@ -124,6 +125,7 @@ public final class StateStore {
             s.permissionCommand = nil
             if wasActive {
                 s.justDoneUntil = now.addingTimeInterval(2)
+                s.mruAt = now          // 跑完一轮 → MRU 置顶（规则③，含后台完成也冒上来）
                 onCompletion?(s, now.timeIntervalSince(s.roundStart))
                 // SwiftUI 只在状态变化时重渲染——必须在到期时主动清除，否则
                 // 风平浪静的话绿条会一直挂到下一个无关事件才消失
@@ -235,25 +237,38 @@ public final class StateStore {
         }
     }
 
-    /// 显示顺序：manualOrder 中的 id 优先（按给定顺序），其余按紧急度+roundStart；并给同名项目编号。
-    public func displaySessions(manualOrder: [String]? = nil) -> [DisplaySession] {
+    /// 显示顺序：权限恒在最前 → 其余按 mruAt 降序（MRU）→ 无响应(dead)最末；并给同名项目编号。
+    /// mruAt 只在「你发消息(UserPromptSubmit)」或「跑完一轮(Stop)」时刷新，中间跑工具/思考中一概不动
+    /// —— 故忙碌的后台 agent 不乱飘、你正看的那个也不抖；从没交互过(mruAt=nil)的垫底。
+    /// 手动拖拽换序也只是改这把同一的尺子（见 reorder：把拖后顺序写进各行 mruAt），故与 MRU 不冲突：
+    /// 拖动即时生效，之后发消息/完成某行仍按 MRU 把它推上去。见 Session.mruAt。
+    public func displaySessions() -> [DisplaySession] {
         let all = Array(sessions.values)
-        let byUrgency: (Session, Session) -> Bool = {
-            if $0.status.urgency != $1.status.urgency { return $0.status.urgency < $1.status.urgency }
-            if $0.roundStart != $1.roundStart { return $0.roundStart < $1.roundStart }
-            return $0.id < $1.id
-        }
-        var ordered: [Session]
-        if let manual = manualOrder {
-            var map = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
-            var head: [Session] = []
-            for id in manual {
-                if let s = map.removeValue(forKey: id) { head.append(s) }
+        let byAuto: (Session, Session) -> Bool = { a, b in
+            let aDead = a.status == .dead, bDead = b.status == .dead
+            if aDead != bDead { return !aDead }          // 非 dead 恒在 dead 之前
+            if !aDead {                                   // 都活着：按 mruAt 降序，nil（从没交互过）垫底
+                switch (a.mruAt, b.mruAt) {
+                case let (x?, y?): if x != y { return x > y }
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): break
+                }
+                if a.createdAt != b.createdAt { return a.createdAt < b.createdAt }
+                return a.id < b.id
             }
-            ordered = head + map.values.sorted(by: byUrgency)
-        } else {
-            ordered = all.sorted(by: byUrgency)
+            // 都 dead：近的在前
+            if a.roundStart != b.roundStart { return a.roundStart > b.roundStart }
+            return a.id < b.id
         }
+        // 权限组内：等得最久的（roundStart 最早）在前
+        let byWaiting: (Session, Session) -> Bool = {
+            $0.roundStart != $1.roundStart ? $0.roundStart < $1.roundStart : $0.id < $1.id
+        }
+        // 权限恒在最前；其余（含拖拽后写入的 mruAt）按 MRU 排
+        let permission = all.filter { $0.status == .permission }.sorted(by: byWaiting)
+        let rest = all.filter { $0.status != .permission }.sorted(by: byAuto)
+        let ordered = permission + rest
 
         // 同名项目按 createdAt 升序编号（唯一者不编号）
         var nameCounts: [String: Int] = [:]
@@ -265,6 +280,15 @@ public final class StateStore {
             dupMap[s.id] = counters[s.projectName]
         }
         return ordered.map { DisplaySession(session: $0, dup: dupMap[$0.id]) }
+    }
+
+    /// 手动拖拽换序（纯数据改变）：把拖后顺序写进各行 mruAt（严格递减），使 MRU 排序即呈现该顺序。
+    /// 不是「钉住」——此后任意发消息/完成仍会把对应行 mruAt 刷成 now、按 MRU 重新上顶，与拖拽共用一把尺子。
+    /// 不持久化（会话本就随进程重建），故不会有跨重启的陈旧顺序残留。
+    public func reorder(_ ids: [String], at now: Date = Date()) {
+        for (i, id) in ids.enumerated() {
+            sessions[id]?.mruAt = now.addingTimeInterval(-Double(i))
+        }
     }
 
     private func applyStatus(_ env: Envelope, sid: String, at now: Date) {

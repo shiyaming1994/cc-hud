@@ -55,6 +55,31 @@ enum Theme {
         return Color.white.opacity(0.35)
     }
 
+    private static func rgb(_ r: Double, _ g: Double, _ b: Double) -> Color {
+        Color(red: r / 255, green: g / 255, blue: b / 255)
+    }
+
+    // ===== 账户额度卡（standalone 重设计）：默认偏暗，仅剩余 <20% 转鲜红告警 =====
+    static let quotaLabel  = rgb(110, 118, 129)   // #6e7681 5H/7D/今日 mono 小标签
+    static let quotaHero   = rgb(219, 226, 232)   // #dbe2e8 5h 重置时刻（headline）
+    static let quotaMuted  = rgb(139, 148, 158)   // #8b949e 时钟图标 / "重置"
+    static let quotaSubtle = rgb(123, 132, 142)   // #7b848e 倒计时 / "tokens 已用"
+    static let quotaToday  = rgb(194, 202, 209)   // #c2cad1 今日 token 数字
+    static let quotaSage   = rgb(123, 154, 134)   // #7b9a86 剩余 >50 calm
+    static let quotaAmber  = rgb(169, 140, 79)    // #a98c4f 剩余 20–50 watch
+    static let quotaAlarm  = rgb(255, 93, 84)     // #ff5d54 剩余 <20 alarm
+    static let quotaCardHi   = Color.white.opacity(0.04)    // 5h hero 卡底
+    static let quotaCardLo   = Color.white.opacity(0.022)   // 7d / 今日 卡底
+    static let quotaTrack    = Color.white.opacity(0.06)    // 进度条轨道
+    static let quotaHairline = Color.white.opacity(0.06)    // hero 非告警描边
+
+    /// 配额剩余配色（standalone level()）：>50 sage，20–50 amber，<20 alarm
+    static func quotaColor(remain: Double) -> Color {
+        if remain > 50 { return quotaSage }
+        if remain >= 20 { return quotaAmber }
+        return quotaAlarm
+    }
+
     static let mono = Font.system(size: 11, design: .monospaced)
 
     /// 状态点基线对齐量：在 `.firstTextBaseline` 行内，让圆点中心落在该字号 x-height 视觉中线
