@@ -26,7 +26,8 @@ public enum ProcessScanner {
         var result: [DiscoveredProcess] = []
         for pid in pids.prefix(Int(count)) where pid > 0 {
             guard isTarget(pid), let info = kinfo(pid),
-                  info.uid == myUid else { continue }   // 共享 Mac：别人的会话不进自己的 HUD
+                  info.uid == myUid,                        // 共享 Mac：别人的会话不进自己的 HUD
+                  isActiveState(info.stat) else { continue }   // 跳过挂起(Ctrl-Z/作业控制遗留)与僵尸——pid 在但非活跃终端
             let tty = ttyName(info.tdev)
             if tty == nil && !includeTTYless { continue }
 
@@ -61,7 +62,7 @@ public enum ProcessScanner {
         return out
     }
 
-    static func kinfo(_ pid: pid_t) -> (ppid: pid_t, comm: String, tdev: Int32, uid: uid_t)? {
+    static func kinfo(_ pid: pid_t) -> (ppid: pid_t, comm: String, tdev: Int32, uid: uid_t, stat: Int32)? {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
@@ -70,7 +71,15 @@ public enum ProcessScanner {
             String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
         }
         guard !comm.isEmpty else { return nil }
-        return (info.kp_eproc.e_ppid, comm, Int32(info.kp_eproc.e_tdev), info.kp_eproc.e_ucred.cr_uid)
+        return (info.kp_eproc.e_ppid, comm, Int32(info.kp_eproc.e_tdev),
+                info.kp_eproc.e_ucred.cr_uid, Int32(info.kp_proc.p_stat))
+    }
+
+    /// 进程状态是否算"活跃会话"（sys/proc.h 的 p_stat）：排除 SSTOP=停止(Ctrl-Z / 作业控制遗留 / 终端关闭)
+    /// 与 SZOMB=僵尸(已死待回收)——它们 pid 还在，但不是你正在用的终端，不该计入 HUD。
+    static func isActiveState(_ stat: Int32) -> Bool {
+        let SSTOP: Int32 = 4, SZOMB: Int32 = 5
+        return stat != SSTOP && stat != SZOMB
     }
 
     static func ttyName(_ tdev: Int32) -> String? {
