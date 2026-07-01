@@ -167,4 +167,16 @@ final class CompactCallbackTests: XCTestCase {
         XCTAssertEqual(completions, 1)
         XCTAssertEqual(compacts, 1)
     }
+
+    /// 回归：手动 /compact 后进程以新 sid 重连、领养同 pid 旧会话——新会话不继承压缩标记，
+    /// 故其首个 status 的 ctx 骤降不得误报一次"压缩完成"。
+    func testAdoptedSessionDoesNotInheritCompactMark() {
+        let store = StateStore()
+        var count = 0
+        store.onCompactDone = { _, _ in count += 1 }
+        store.apply(status(pct: 80, sid: "s1"), at: t0)                                              // s1(pid100) ctx=80
+        store.apply(hook("PreCompact", sid: "s1", extra: #","trigger":"manual""#), at: t0.addingTimeInterval(1))
+        store.apply(status(pct: 50, sid: "s2"), at: t0.addingTimeInterval(2))                        // 新 sid 同 pid → 领养 s1，ctx 骤降 30
+        XCTAssertEqual(count, 0, "领养的新会话不带 compactStartedAt，ctx 骤降不得误报压缩完成")
+    }
 }

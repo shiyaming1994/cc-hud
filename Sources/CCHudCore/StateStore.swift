@@ -186,7 +186,9 @@ public final class StateStore {
                        lastEventAt: now, createdAt: adopted?.createdAt ?? now,
                        ctxPct: adopted?.ctxPct, model: adopted?.model,
                        justDoneUntil: nil, deadSince: nil,
-                       compactStartedAt: adopted?.compactStartedAt)
+                       // 不继承 compactStartedAt：领养的新会话若带上旧会话的压缩标记，其首个 status
+                       // 的 ctx 骤降会误报一次"压缩完成"。同会话的正常压缩检测不走领养(sid 已存在)，不受影响。
+                       compactStartedAt: nil)
     }
 
     private func updateIdentity(_ s: inout Session, env: Envelope) {
