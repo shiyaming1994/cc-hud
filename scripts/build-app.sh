@@ -22,7 +22,14 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
-cat > "$APP/Contents/Info.plist" << 'PLIST'
+# 版本号唯一来源：从 AppInfo.swift 提取，保证菜单与 bundle 版本一致
+VERSION=$(sed -n 's/.*static let version = "\(.*\)".*/\1/p' Sources/CCHud/AppInfo.swift)
+if [ -z "$VERSION" ]; then
+  echo "error: 无法从 Sources/CCHud/AppInfo.swift 提取版本号" >&2
+  exit 1
+fi
+
+cat > "$APP/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -32,7 +39,7 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
     <key>CFBundleIdentifier</key><string>io.github.shiyaming.cc-hud</string>
     <key>CFBundleExecutable</key><string>CCHud</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.2.0</string>
+    <key>CFBundleShortVersionString</key><string>${VERSION}</string>
     <key>CFBundleVersion</key><string>14</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>

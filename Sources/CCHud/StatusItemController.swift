@@ -45,6 +45,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func rebuildMenu() {
         menu.removeAllItems()
+        // 版本号（AppInfo.version 为唯一来源）——灰色不可点信息行
+        let version = NSMenuItem(title: "CC HUD  v\(AppInfo.version)", action: nil, keyEquivalent: "")
+        version.isEnabled = false
+        menu.addItem(version)
         let status = NSMenuItem(title: "接入状态：\(installStatusText)", action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
