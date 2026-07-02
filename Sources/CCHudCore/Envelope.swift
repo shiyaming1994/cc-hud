@@ -40,6 +40,18 @@ public struct EnvelopePayload: Decodable, Sendable {
 public struct ModelInfo: Decodable, Sendable {
     public let displayName: String?
     enum CodingKeys: String, CodingKey { case displayName = "display_name" }
+
+    /// model 字段有两种形态：statusline 是对象 {"display_name": …}；
+    /// SessionStart hook 是纯字符串（model id，如 "claude-opus-4-8[1m]"）。
+    /// 字符串形态不含显示名 → displayName = nil（显示名由 statusline 持续刷新），
+    /// 但解码不能失败——否则每次启动/resume/compact 都误报一次"解析失败"。
+    public init(from decoder: Decoder) throws {
+        if let container = try? decoder.container(keyedBy: CodingKeys.self) {
+            displayName = try? container.decodeIfPresent(String.self, forKey: .displayName)
+        } else {
+            displayName = nil
+        }
+    }
 }
 
 public struct ContextWindowInfo: Decodable, Sendable {
