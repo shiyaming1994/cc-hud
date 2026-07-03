@@ -71,4 +71,33 @@ public struct UpdateChecker: Sendable {
         return ReleaseInfo(tagName: r.tagName, version: version,
                            body: r.body ?? "", dmgURL: url, dmgSize: asset.size)
     }
+
+    private let currentVersion: SemVer
+    private let fetch: @Sendable (URL) async throws -> Data
+
+    /// currentVersionString 传 AppInfo.version;非法版本串返回 nil(调用方降级为"不支持更新")
+    public init?(currentVersionString: String,
+                 fetch: @escaping @Sendable (URL) async throws -> Data = UpdateChecker.defaultFetch) {
+        guard let v = SemVer(currentVersionString) else { return nil }
+        self.currentVersion = v
+        self.fetch = fetch
+    }
+
+    public static let defaultFetch: @Sendable (URL) async throws -> Data = { url in
+        var req = URLRequest(url: url)
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.timeoutInterval = 15
+        let (data, _) = try await URLSession.shared.data(for: req)
+        return data
+    }
+
+    /// nil = 已最新(或响应解析失败,按无更新处理);throws = 网络层错误
+    public func checkLatest() async throws -> ReleaseInfo? {
+        let data = try await fetch(Self.latestReleaseURL)
+        guard let info = Self.parseRelease(data) else {
+            DebugLog.log("update: release 响应解析失败(\(data.count)B)")
+            return nil
+        }
+        return info.version > currentVersion ? info : nil
+    }
 }

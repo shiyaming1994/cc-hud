@@ -67,4 +67,40 @@ final class UpdateCheckerTests: XCTestCase {
         let info = try XCTUnwrap(UpdateChecker.parseRelease(Data(json.utf8)))
         XCTAssertEqual(info.body, "", "body 为 null 时给空串,弹窗仍可用")
     }
+
+    // MARK: checkLatest
+
+    func testCheckLatestReturnsNewerRelease() async throws {
+        let checker = try XCTUnwrap(UpdateChecker(currentVersionString: "1.2.1",
+                                                  fetch: { _ in Data(Self.fixtureJSON.utf8) }))
+        let info = try await checker.checkLatest()
+        XCTAssertEqual(info?.tagName, "v1.3.0")
+    }
+
+    func testCheckLatestNilWhenUpToDate() async throws {
+        let checker = try XCTUnwrap(UpdateChecker(currentVersionString: "1.3.0",
+                                                  fetch: { _ in Data(Self.fixtureJSON.utf8) }))
+        let info = try await checker.checkLatest()
+        XCTAssertNil(info, "相同版本不算新")
+    }
+
+    func testCheckLatestNilWhenCurrentNewer() async throws {
+        let checker = try XCTUnwrap(UpdateChecker(currentVersionString: "9.0.0",
+                                                  fetch: { _ in Data(Self.fixtureJSON.utf8) }))
+        let info = try await checker.checkLatest()
+        XCTAssertNil(info, "本地比 release 新(开发中)不提示")
+    }
+
+    func testCheckLatestPropagatesNetworkError() async {
+        struct Boom: Error {}
+        let checker = UpdateChecker(currentVersionString: "1.2.1", fetch: { _ in throw Boom() })!
+        do {
+            _ = try await checker.checkLatest()
+            XCTFail("网络错误应该抛出(调用方区分静默/弹窗)")
+        } catch {}
+    }
+
+    func testCheckerInitNilOnBadCurrentVersion() {
+        XCTAssertNil(UpdateChecker(currentVersionString: "dev", fetch: { _ in Data() }))
+    }
 }
