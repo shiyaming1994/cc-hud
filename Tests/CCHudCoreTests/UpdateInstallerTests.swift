@@ -75,4 +75,40 @@ final class UpdateInstallerTests: XCTestCase {
         let marker = try String(contentsOf: dst.appendingPathComponent("marker.txt"), encoding: .utf8)
         XCTAssertEqual(marker, "old", "失败后旧版必须原样保留")
     }
+
+    // MARK: hdiutil plist 解析
+
+    func testMountPointParsedFromHdiutilPlist() throws {
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict>
+          <key>system-entities</key><array>
+            <dict><key>content-hint</key><string>GUID_partition_scheme</string></dict>
+            <dict>
+              <key>content-hint</key><string>Apple_HFS</string>
+              <key>mount-point</key><string>/Volumes/CC HUD</string>
+            </dict>
+          </array>
+        </dict></plist>
+        """
+        XCTAssertEqual(UpdateInstaller.mountPoint(fromHdiutilPlist: Data(plist.utf8)),
+                       "/Volumes/CC HUD", "取第一个带 mount-point 的分区")
+    }
+
+    func testMountPointNilOnGarbage() {
+        XCTAssertNil(UpdateInstaller.mountPoint(fromHdiutilPlist: Data("not a plist".utf8)))
+        XCTAssertNil(UpdateInstaller.mountPoint(fromHdiutilPlist: Data()))
+    }
+
+    // MARK: 签名校验负路径
+
+    func testTeamIdentifierNilForUnsignedDirectory() {
+        XCTAssertNil(UpdateInstaller.teamIdentifier(of: newApp), "裸目录无签名 → nil,绝不能当有效")
+    }
+
+    func testTeamIdentifierNilForMissingPath() {
+        XCTAssertNil(UpdateInstaller.teamIdentifier(
+            of: base.appendingPathComponent("nonexistent.app")))
+    }
 }
