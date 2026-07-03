@@ -63,6 +63,24 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertTrue(leftovers.isEmpty)
     }
 
+    func testReplaceCleansPartialCopyWhenSourceUnreadable() throws {
+        let dst = try installOld()
+        // 新 app 里埋一个不可读文件 → copyItem 半途失败,走第一个 catch
+        let unreadable = newApp.appendingPathComponent("secret.bin")
+        try Data("x".utf8).write(to: unreadable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadable.path)
+        XCTAssertThrowsError(try installer.replaceApp(with: newApp)) { err in
+            guard case UpdateError.replaceFailed = err else {
+                return XCTFail("应为 replaceFailed,得到 \(err)")
+            }
+        }
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: appsDir.path)
+            .filter { $0.hasPrefix(".CC HUD.app") }
+        XCTAssertTrue(leftovers.isEmpty, "半途失败的部分拷贝必须清理,不留 .new 残留")
+        let marker = try String(contentsOf: dst.appendingPathComponent("marker.txt"), encoding: .utf8)
+        XCTAssertEqual(marker, "old", "旧版原样保留")
+    }
+
     func testReplaceThrowsAndKeepsOldWhenDirUnwritable() throws {
         let dst = try installOld()
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: appsDir.path)

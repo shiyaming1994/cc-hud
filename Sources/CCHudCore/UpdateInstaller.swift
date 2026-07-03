@@ -49,6 +49,7 @@ public struct UpdateInstaller: Sendable {
             // 先整体落到目标同目录(同卷),后续 rename 才是原子的
             try fm.copyItem(at: newAppDir, to: staged)
         } catch {
+            try? fm.removeItem(at: staged)
             throw UpdateError.replaceFailed("拷贝新版本失败:\(error.localizedDescription)")
         }
         let hadOld = fm.fileExists(atPath: dst.path)
