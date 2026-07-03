@@ -8,6 +8,8 @@ enum InstallState {
     case failed(String)
     case uninstalled
     case serverError(String)
+    /// 开发构建(非生产 bundle id):不接生产事件链路,只听 hud-dev.sock 的假事件
+    case devMode
 }
 
 @MainActor
@@ -75,6 +77,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             let s = NSMenuItem(title: "⚠ 事件服务启动失败", action: nil, keyEquivalent: "")
             s.isEnabled = false
             s.toolTip = why   // 端口占用等,重装修不了——只展示原因
+            menu.addItem(s)
+        case .devMode:
+            let s = NSMenuItem(title: "CC HUD v\(AppInfo.version) · 开发构建(未接生产事件)",
+                               action: nil, keyEquivalent: "")
+            s.isEnabled = false
+            s.toolTip = "开发实例只听 hud-dev.sock(send-fake.sh 发假事件);生产 HUD 与接入不受影响"
             menu.addItem(s)
         }
         // ── 更新横幅(有新版 / 下载中 / 安装中才出现)

@@ -23,6 +23,9 @@ public struct Installer: Sendable {
     public var configURL: URL { hudDir.appendingPathComponent("config.json") }
     public var settingsURL: URL { claudeDir.appendingPathComponent("settings.json") }
     public var socketPath: String { hudDir.appendingPathComponent("hud.sock").path }
+    /// 开发构建专用 socket——与生产链路物理隔离,emit(hooks/statusline)永远只发生产路径。
+    /// 开发实例验证 UI 用 scripts/send-fake.sh 对准这个路径发假事件。
+    public var devSocketPath: String { hudDir.appendingPathComponent("hud-dev.sock").path }
 
     // settings.json 里写的命令用 $HOME（hook 经 sh 执行会展开），与真实安装路径解耦
     public static let emitCommand = "\"$HOME/.claude/cc-hud/emit\" hook"

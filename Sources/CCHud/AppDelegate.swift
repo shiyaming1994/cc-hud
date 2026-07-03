@@ -74,8 +74,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for other in others where !other.isTerminated { other.forceTerminate() }
         }
 
-        // 1. 安装接入（尊重用户的卸载意愿：卸载过则不自动重装）
-        runInstall(force: false)
+        // 1. 安装接入（尊重用户的卸载意愿：卸载过则不自动重装）。
+        // 开发构建(swift run/裸二进制,非生产 bundle id)一律跳过——runInstall 会覆盖
+        // 生产 emit、EventServer 会抢生产 socket,把用户正在用的 HUD 变聋(2026-07-03 事故)。
+        if !Self.isDevBuild {
+            runInstall(force: false)
+        }
 
         // 2. 事件服务 + 完成动画 / 提问提示触发（均带焦点静默：正看着的终端 tab 不弹）
         store.onCompletion = { [weak self] session, elapsed in
@@ -115,7 +119,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // HUD 常驻副屏 1、人在副屏 2 干活时，提示要追人不追面板
         animator.screenProvider = { FocusedScreen.current() }
         burnoutAlert.screenProvider = { FocusedScreen.current() }
-        let server = EventServer(socketPath: installer.socketPath, onEnvelope: { [weak self] env in
+        let server = EventServer(
+            socketPath: Self.isDevBuild ? installer.devSocketPath : installer.socketPath,
+            onEnvelope: { [weak self] env in
             Task { @MainActor in
                 // 诊断探针：用信封里的真实身份跑一遍焦点判定，只写日志、不进会话列表
                 if env.payload.hookEventName == "CCHudFocusProbe" {
@@ -192,7 +198,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // 设计稿示例：剩 8% · 25min 见底 · 距重置 4h52m → 断档 4h27m（重度）
                 self?.burnoutAlert.present(remainingPct: 8, dropMinutes: 267, timeLeft: 292 * 60)
             })
-        if let serverError {
+        if Self.isDevBuild {
+            statusItem?.setInstallState(.devMode)
+        } else if let serverError {
             statusItem?.setInstallState(.serverError(serverError))
         } else if UserDefaults.standard.bool(forKey: Self.uninstalledKey) {
             statusItem?.setInstallState(.uninstalled)
@@ -264,6 +272,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     static let uninstalledKey = "install.userUninstalled"
+    static let productionBundleID = "io.github.shiyaming.cc-hud"
+    /// 开发构建判定:非生产 bundle id(swift run 的裸二进制为 nil)即视为开发实例
+    static var isDevBuild: Bool { Bundle.main.bundleIdentifier != productionBundleID }
 
     private func runInstall(force: Bool) {
         if !force && UserDefaults.standard.bool(forKey: Self.uninstalledKey) { return }
