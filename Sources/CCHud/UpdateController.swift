@@ -45,6 +45,7 @@ final class UpdateController {
         case .downloading, .installing, .checking: return   // 更新流程进行中不重入
         case .idle, .available: break
         }
+        let previous = state
         state = .checking
         do {
             if let release = try await checker.checkLatest() {
@@ -55,7 +56,8 @@ final class UpdateController {
                 if userInitiated { info("已是最新版本", "当前 v\(AppInfo.version) 即最新发布版本。") }
             }
         } catch {
-            state = .idle
+            // 复查失败不弄丢已发现的更新横幅(网络抖动不该让用户再等 24h)
+            if case .available = previous { state = previous } else { state = .idle }
             DebugLog.log("update: 检查失败 \(error.localizedDescription)")
             if userInitiated { info("检查更新失败", "请稍后重试:\(error.localizedDescription)") }
         }

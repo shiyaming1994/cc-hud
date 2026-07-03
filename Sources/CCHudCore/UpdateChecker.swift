@@ -87,7 +87,12 @@ public struct UpdateChecker: Sendable {
         var req = URLRequest(url: url)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 15
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        // 非 200(限流 403/404/5xx)必须走「检查失败」分支,
+        // 而不是被解析层吞成 nil → 误报「已是最新版本」
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
         return data
     }
 
