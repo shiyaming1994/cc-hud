@@ -43,17 +43,7 @@ enum Theme {
         if used >= 72 { return permission }
         return idle
     }
-    /// 配额剩余配色：剩余 ≤12 crit，≤30 warn（components.jsx remainClass）
-    static func remainColor(_ remain: Double) -> Color {
-        if remain <= 12 { return critText }
-        if remain <= 30 { return permission }
-        return txTertiary
-    }
-    static func remainBarColor(_ remain: Double) -> Color {
-        if remain <= 12 { return critBar.opacity(0.85) }
-        if remain <= 30 { return permission.opacity(0.7) }
-        return Color.white.opacity(0.35)
-    }
+    // 旧 remainClass 口径(≤12 crit/≤30 warn)已退役:额度色全部走 quotaColor 单一口径
 
     private static func rgb(_ r: Double, _ g: Double, _ b: Double) -> Color {
         Color(red: r / 255, green: g / 255, blue: b / 255)

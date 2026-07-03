@@ -74,7 +74,9 @@ struct PillMinimalView: View {
                     Text("\(Int(w.remainPct))%")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced)).monospacedDigit()
                 }
-                .foregroundStyle(Theme.remainColor(w.remainPct))
+                // 与展开态同一口径(quotaColor:<20 红、20–50 黄、>50 绿)——
+                // 旧 remainClass 口径(≤12 才红)会出现"展开红、胶囊黄"的分裂
+                .foregroundStyle(Theme.quotaColor(remain: w.remainPct))
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
