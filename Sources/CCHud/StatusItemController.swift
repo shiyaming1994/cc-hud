@@ -24,6 +24,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let previewBurnout: () -> Void
     private let updateController: UpdateController
     private var installState: InstallState = .failed("未安装")
+    /// 当前菜单里的更新横幅项(仅可点状态);高亮切换时在 accent 蓝与系统反白之间换色
+    private weak var bannerItem: NSMenuItem?
 
     init(updateController: UpdateController,
          togglePanel: @escaping () -> Void, reinstall: @escaping () -> Void,
@@ -58,6 +60,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         MainActor.assumeIsolated { rebuildMenu() }
     }
 
+    /// 横幅的 attributedTitle 固定了 accent 蓝,会盖掉系统高亮反白 → 高亮时手动切白、
+    /// 移开恢复蓝。只有横幅需要:其他项都是普通 title,系统自己处理。
+    nonisolated func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        MainActor.assumeIsolated {
+            guard let banner = bannerItem else { return }
+            banner.attributedTitle = Self.bannerTitle(banner.title, highlighted: item === banner)
+        }
+    }
+
+    private static func bannerTitle(_ text: String, highlighted: Bool) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .foregroundColor: highlighted ? NSColor.selectedMenuItemTextColor
+                                          : NSColor.controlAccentColor,
+        ])
+    }
+
     private func rebuildMenu() {
         menu.removeAllItems()
         // ── 状态行:版本+接入状态合并一行;正常零噪音,异常显眼可点
@@ -87,12 +105,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         // ── 更新横幅(有新版 / 下载中 / 安装中才出现)
         let pres = updateController.state.menuPresentation
+        bannerItem = nil
         if let banner = pres.bannerTitle {
             if pres.bannerEnabled {
                 let b = makeItem(banner, #selector(updateBannerAction))
-                b.attributedTitle = NSAttributedString(string: banner, attributes: [
-                    .foregroundColor: NSColor.controlAccentColor,
-                ])
+                b.attributedTitle = Self.bannerTitle(banner, highlighted: false)
+                bannerItem = b
                 menu.addItem(b)
             } else {
                 let b = NSMenuItem(title: banner, action: nil, keyEquivalent: "")
