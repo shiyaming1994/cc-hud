@@ -45,6 +45,15 @@ cd cc-hud
 
 app 内不含任何机器相关配置,所有路径基于各自的 `$HOME` 在首次启动时自动生成。构建优先使用本机 Apple Development 证书签名,没有则退回 ad-hoc。未做 Developer ID + 公证,他人首次打开会被 Gatekeeper 拦——**右键 → 打开 → 再点打开**一次即可(或系统设置 → 隐私与安全性 → 仍要打开)。
 
+### 发版约定(应用内自动更新依赖)
+
+应用内更新器直接消费 GitHub Releases,发版必须遵守:
+
+- tag 用 `vX.Y.Z`(如 `v1.3.0`),与 `Sources/CCHud/AppInfo.swift` 的版本一致(改版本只改那一行)。
+- dmg 资产名固定为 `CC-HUD.dmg`,用 `./scripts/make-dmg.sh` 生成。
+- release 正文写中文更新日志——它会原样展示在用户的更新确认窗里。
+- 用同一台机器的 Apple Development 证书签名构建;换签名身份会让老用户更新后辅助功能授权失效一次,需在更新日志中提醒。
+
 ## 原理
 
 Claude Code 经 hooks / statusline 主动推送 JSON 到 unix 域套接字(`~/.claude/cc-hud/hud.sock`),app 内状态机驱动 SwiftUI 渲染。无轮询热路径(仅 5s PID 存活检查 + 60s 今日 token 扫描);HUD 未运行时 emit 100ms 超时静默退出,对 Claude Code 零影响。

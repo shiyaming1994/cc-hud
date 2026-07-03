@@ -45,6 +45,15 @@ Package a DMG for distribution:
 
 The app ships no machine-specific configuration; every path is derived from `$HOME` and generated on first launch. The build signs with a local Apple Development certificate when one is available, otherwise it falls back to ad-hoc signing. Without a Developer ID certificate and notarization, the first launch on another Mac is gated by Gatekeeper — **right-click → Open → Open** once (or System Settings → Privacy & Security → Open Anyway).
 
+### Release conventions (required by in-app auto-update)
+
+The in-app updater consumes GitHub Releases directly:
+
+- Tag as `vX.Y.Z` (e.g. `v1.3.0`), matching the version in `Sources/CCHud/AppInfo.swift`.
+- The dmg asset must be named exactly `CC-HUD.dmg` (built via `./scripts/make-dmg.sh`).
+- The release body is shown verbatim in the update dialog — write it for end users.
+- Sign with the same Apple Development certificate; changing signing identity invalidates users' Accessibility grant once after update (mention it in the changelog).
+
 ## How it works
 
 Claude Code pushes JSON to a unix domain socket (`~/.claude/cc-hud/hud.sock`) through hooks and the statusline; a state machine inside the app drives the SwiftUI rendering. There is no hot polling path — only a 5s PID-liveness check and a 60s daily-token scan. When the HUD isn't running, the emitter exits silently after a 100ms timeout, so it has zero impact on Claude Code.
