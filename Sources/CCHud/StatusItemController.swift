@@ -63,9 +63,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// 横幅的 attributedTitle 固定了 accent 蓝,会盖掉系统高亮反白 → 高亮时手动切白、
     /// 移开恢复蓝。只有横幅需要:其他项都是普通 title,系统自己处理。
     nonisolated func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        // NSMenuItem 非 Sendable,不能带进 MainActor 闭包(Swift 6 release 构建报 sending 风险)
+        // ——闭包外先取指针身份(ObjectIdentifier 是 Sendable),闭包内按身份比较
+        let highlightedID = item.map(ObjectIdentifier.init)
         MainActor.assumeIsolated {
             guard let banner = bannerItem else { return }
-            banner.attributedTitle = Self.bannerTitle(banner.title, highlighted: item === banner)
+            banner.attributedTitle = Self.bannerTitle(
+                banner.title, highlighted: highlightedID == ObjectIdentifier(banner))
         }
     }
 
