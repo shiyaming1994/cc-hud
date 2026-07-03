@@ -26,8 +26,8 @@ final class UpdateController {
             try? await Task.sleep(for: .seconds(10))
             await self?.check(userInitiated: false)
         }
-        periodicTimer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in
-            Task { @MainActor [weak self] in await self?.check(userInitiated: false) }
+        periodicTimer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.check(userInitiated: false) }
         }
     }
 
@@ -104,6 +104,7 @@ final class UpdateController {
         }
         state = .downloading(0)
         let installer = self.installer
+        // self 有意强捕获:controller 与 app 同生命周期,下载中途不应释放
         Task {
             do {
                 try await installer.downloadAndInstall(release, expectedTeam: team) { p in
