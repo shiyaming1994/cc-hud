@@ -2,6 +2,14 @@ import AppKit
 import ServiceManagement
 import ApplicationServices
 
+/// 接入状态的结构化表达——菜单状态行按 case 渲染:正常灰色一行,异常显眼可点
+enum InstallState {
+    case ok
+    case failed(String)
+    case uninstalled
+    case serverError(String)
+}
+
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let item: NSStatusItem
@@ -12,12 +20,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let previewAnimation: (String) -> Void
     private let eventStatus: () -> String
     private let previewBurnout: () -> Void
-    private(set) var installStatusText = "未安装"
+    private let updateController: UpdateController
+    private var installState: InstallState = .failed("未安装")
 
-    init(togglePanel: @escaping () -> Void, reinstall: @escaping () -> Void,
+    init(updateController: UpdateController,
+         togglePanel: @escaping () -> Void, reinstall: @escaping () -> Void,
          uninstall: @escaping () -> Void, eventStatus: @escaping () -> String,
          previewAnimation: @escaping (String) -> Void,
          previewBurnout: @escaping () -> Void) {
+        self.updateController = updateController
         self.togglePanel = togglePanel
         self.reinstall = reinstall
         self.uninstallAction = uninstall
@@ -30,11 +41,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                                      accessibilityDescription: "CC HUD")
         menu.delegate = self
         item.menu = menu
+        // 更新状态变化(发现新版/下载进度)→ 即时重建,菜单开着也能看到进度跳动
+        updateController.onStateChange = { [weak self] in self?.rebuildMenu() }
         rebuildMenu()
     }
 
-    func setInstallStatus(_ text: String) {
-        installStatusText = text
+    func setInstallState(_ state: InstallState) {
+        installState = state
         rebuildMenu()
     }
 
@@ -45,25 +58,44 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func rebuildMenu() {
         menu.removeAllItems()
-        // 版本号（AppInfo.version 为唯一来源）——灰色不可点信息行
-        let version = NSMenuItem(title: "CC HUD  v\(AppInfo.version)", action: nil, keyEquivalent: "")
-        version.isEnabled = false
-        menu.addItem(version)
-        let status = NSMenuItem(title: "接入状态：\(installStatusText)", action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
-        // 事件链路健康：最近事件时间 + 解析失败计数（排障一眼可见）
-        let health = NSMenuItem(title: eventStatus(), action: nil, keyEquivalent: "")
-        health.isEnabled = false
-        menu.addItem(health)
+        // ── 状态行:版本+接入状态合并一行;正常零噪音,异常显眼可点
+        switch installState {
+        case .ok:
+            let s = NSMenuItem(title: "CC HUD v\(AppInfo.version) · 运行正常",
+                               action: nil, keyEquivalent: "")
+            s.isEnabled = false
+            menu.addItem(s)
+        case .failed(let why):
+            let s = makeItem("⚠ 接入失败 · 点击重新安装", #selector(reinstallAction))
+            s.toolTip = why
+            menu.addItem(s)
+        case .uninstalled:
+            menu.addItem(makeItem("已卸载接入 · 点击恢复", #selector(reinstallAction)))
+        case .serverError(let why):
+            let s = NSMenuItem(title: "⚠ 事件服务启动失败", action: nil, keyEquivalent: "")
+            s.isEnabled = false
+            s.toolTip = why   // 端口占用等,重装修不了——只展示原因
+            menu.addItem(s)
+        }
+        // ── 更新横幅(有新版 / 下载中 / 安装中才出现)
+        let pres = updateController.state.menuPresentation
+        if let banner = pres.bannerTitle {
+            if pres.bannerEnabled {
+                let b = makeItem(banner, #selector(updateBannerAction))
+                b.attributedTitle = NSAttributedString(string: banner, attributes: [
+                    .foregroundColor: NSColor.controlAccentColor,
+                ])
+                menu.addItem(b)
+            } else {
+                let b = NSMenuItem(title: banner, action: nil, keyEquivalent: "")
+                b.isEnabled = false
+                menu.addItem(b)
+            }
+        }
         menu.addItem(.separator())
         menu.addItem(makeItem("显示 / 隐藏 HUD", #selector(togglePanelAction)))
-        let launch = makeItem("登录时启动", #selector(toggleLaunchAtLogin))
-        launch.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(launch)
         menu.addItem(.separator())
-        // 提示动画（完成动画 + 提问提示成对生效）：关闭 / 光环 / 打字机 / 呼吸灯
-        // 配对关系：光环↔光环呼吸、打字机↔逐字打出、呼吸灯↔边缘光呼吸
+        // ── 设置(高频开关留顶层,随手可切)
         let animMenu = NSMenu()
         let current = UserDefaults.standard.string(forKey: CompletionAnimator.styleKey) ?? "a"
         let styles: [(String, String)] = [
@@ -79,23 +111,39 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let animRoot = NSMenuItem(title: "提示动画（完成 / 提问）", action: nil, keyEquivalent: "")
         animRoot.submenu = animMenu
         menu.addItem(animRoot)
-        // 焦点静默：正看着的终端 tab 不弹完成动画/提问提示
         let focusItem = makeItem("焦点会话不提示", #selector(toggleFocusSuppress))
         focusItem.state = TerminalFocus.suppressEnabled ? .on : .off
         menu.addItem(focusItem)
-        // 额度燃尽预警：5h 按当前速率会提前烧光时全屏提示（升档才弹，不静默）
         let burnoutItem = makeItem("额度燃尽预警", #selector(toggleBurnout))
         burnoutItem.state = BurnoutAlertController.enabled ? .on : .off
         menu.addItem(burnoutItem)
+        let launch = makeItem("登录时启动", #selector(toggleLaunchAtLogin))
+        launch.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(launch)
         menu.addItem(.separator())
+        // ── 权限与排障(低频,收进子菜单;事件心跳明细在这里)
+        let diag = NSMenu()
+        let ev = NSMenuItem(title: eventStatus(), action: nil, keyEquivalent: "")
+        ev.isEnabled = false
+        diag.addItem(ev)
         let axOK = AXIsProcessTrusted()
-        menu.addItem(makeItem(axOK ? "辅助功能：已授权 ✓" : "授权辅助功能（Ghostty 跳转）…",
+        diag.addItem(makeItem(axOK ? "辅助功能：已授权 ✓" : "授权辅助功能（Ghostty 跳转）…",
                               #selector(openAccessibilitySettings)))
-        menu.addItem(makeItem("自动化授权设置（iTerm2/终端跳转）…", #selector(openAutomationSettings)))
-        menu.addItem(.separator())
-        menu.addItem(makeItem("重新安装接入", #selector(reinstallAction)))
-        menu.addItem(makeItem("卸载接入（还原 settings.json）", #selector(uninstallMenuAction)))
-        menu.addItem(.separator())
+        diag.addItem(makeItem("自动化授权设置（iTerm2/终端跳转）…", #selector(openAutomationSettings)))
+        diag.addItem(.separator())
+        diag.addItem(makeItem("重新安装接入", #selector(reinstallAction)))
+        diag.addItem(makeItem("卸载接入（还原 settings.json）", #selector(uninstallMenuAction)))
+        let diagRoot = NSMenuItem(title: "权限与排障", action: nil, keyEquivalent: "")
+        diagRoot.submenu = diag
+        menu.addItem(diagRoot)
+        // ── 检查更新 + 退出
+        if pres.checkItemEnabled {
+            menu.addItem(makeItem(pres.checkItemTitle, #selector(checkUpdateAction)))
+        } else {
+            let c = NSMenuItem(title: pres.checkItemTitle, action: nil, keyEquivalent: "")
+            c.isEnabled = false
+            menu.addItem(c)
+        }
         menu.addItem(makeItem("退出", #selector(quit)))
     }
 
@@ -142,5 +190,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
     @objc private func reinstallAction() { reinstall() }
     @objc private func uninstallMenuAction() { uninstallAction() }
+    @objc private func updateBannerAction() { updateController.presentUpdateAlert() }
+    @objc private func checkUpdateAction() { updateController.checkNow() }
     @objc private func quit() { NSApp.terminate(nil) }
 }

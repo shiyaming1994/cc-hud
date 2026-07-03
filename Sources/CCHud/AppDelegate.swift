@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var server: EventServer?
     var panel: HUDPanel?
     var statusItem: StatusItemController?
+    var updateController: UpdateController?
     var livenessTimer: Timer?
     var scanTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
@@ -144,8 +145,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.panel = panel
         installHoverMonitor(panelRef: panelRef)
 
-        // 4. 菜单栏
+        // 4. 菜单栏(更新控制器先建——菜单要渲染更新状态)
+        let updateController = UpdateController()
+        self.updateController = updateController
         statusItem = StatusItemController(
+            updateController: updateController,
             togglePanel: { [weak self] in
                 guard let p = self?.panel else { return }
                 p.isVisible ? p.orderOut(nil) : p.orderFrontRegardless()
@@ -155,16 +159,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 try? self.installer.uninstall()
                 UserDefaults.standard.set(true, forKey: Self.uninstalledKey)
-                self.statusItem?.setInstallStatus("已卸载（菜单可重新安装）")
+                self.statusItem?.setInstallState(.uninstalled)
             },
             eventStatus: { [weak self] in
                 guard let self else { return "" }
                 let fails = self.store.decodeFailures
                 let failNote = fails > 0 ? "（解析失败 \(fails)）" : ""
-                guard let last = self.store.lastEventReceivedAt else { return "事件：尚未收到\(failNote)" }
+                guard let last = self.store.lastEventReceivedAt else {
+                    return "最近收到事件：尚未收到\(failNote)"
+                }
                 let s = Int(Date().timeIntervalSince(last))
                 let age = s < 60 ? "\(s) 秒前" : (s < 3600 ? "\(s / 60) 分钟前" : "\(s / 3600) 小时前")
-                return "事件：\(age)\(failNote)"
+                return "最近收到事件：\(age)\(failNote)"
             },
             previewAnimation: { [weak self] _ in
                 // 成对预览：先播完成动画，播完接提问卡片（同一方案族）。
@@ -187,12 +193,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.burnoutAlert.present(remainingPct: 8, dropMinutes: 267, timeLeft: 292 * 60)
             })
         if let serverError {
-            statusItem?.setInstallStatus(serverError)
+            statusItem?.setInstallState(.serverError(serverError))
         } else if UserDefaults.standard.bool(forKey: Self.uninstalledKey) {
-            statusItem?.setInstallStatus("已卸载（菜单可重新安装）")
+            statusItem?.setInstallState(.uninstalled)
         } else {
-            statusItem?.setInstallStatus(installer.isInstalled() ? "正常" : "失败")
+            statusItem?.setInstallState(installer.isInstalled() ? .ok : .failed("hooks 未接入"))
         }
+        updateController.startAutomaticChecks()
 
         // 5. 进程对账（启动立即一次，之后 5s）：扫描真实 claude 进程，
         //    没发过事件的会话也立刻显示；进程消失即转无响应/移除。
@@ -263,9 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if force { UserDefaults.standard.set(false, forKey: Self.uninstalledKey) }
         do {
             _ = try installer.install()
-            statusItem?.setInstallStatus("正常")
+            statusItem?.setInstallState(.ok)
         } catch {
-            statusItem?.setInstallStatus("失败：\(error.localizedDescription)")
+            statusItem?.setInstallState(.failed(error.localizedDescription))
         }
     }
 
