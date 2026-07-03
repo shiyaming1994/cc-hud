@@ -70,11 +70,14 @@ struct RowView: View {
     @ViewBuilder private var timeView: some View {
         switch s.status {
         case .working, .permission:
-            // render-server 自更新计时，app 进程零开销
-            Text(timerInterval: s.roundStart...Date.distantFuture, countsDown: false)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(s.status == .permission ? Theme.permission : Theme.txTertiary)
-                .monospacedDigit()
+            // 不用 Text(timerInterval:)（render-server 零开销但超 1h 变三段 "1:01:23" 会撑宽换行）；
+            // TimelineView 每秒重算这一个 Text，恒短两段式（Format.clock），成本可忽略
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                Text(Format.clock(ctx.date.timeIntervalSince(s.roundStart)))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(s.status == .permission ? Theme.permission : Theme.txTertiary)
+                    .monospacedDigit()
+            }
         case .dead:
             TimelineView(.periodic(from: .now, by: 30)) { ctx in
                 Text(Format.coarse(since: s.roundStart, now: ctx.date))

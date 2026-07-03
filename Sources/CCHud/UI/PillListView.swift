@@ -77,9 +77,12 @@ struct PillListView: View {
     @ViewBuilder private func timeText(_ s: Session) -> some View {
         switch s.status {
         case .working, .permission:
-            Text(timerInterval: s.roundStart...Date.distantFuture, countsDown: false)
-                .font(.system(size: 12, design: .monospaced)).monospacedDigit()
-                .foregroundStyle(Theme.statusColor(s.status))
+            // 同 RowView：弃 Text(timerInterval:)，超 1h 恒短两段式不换行
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                Text(Format.clock(ctx.date.timeIntervalSince(s.roundStart)))
+                    .font(.system(size: 12, design: .monospaced)).monospacedDigit()
+                    .foregroundStyle(Theme.statusColor(s.status))
+            }
         case .dead:
             TimelineView(.periodic(from: .now, by: 30)) { ctx in
                 Text(Format.coarse(since: s.roundStart, now: ctx.date))

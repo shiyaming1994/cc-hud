@@ -110,10 +110,13 @@ struct PillMinimalView: View {
             if let dup = cur.dup {
                 Text("#\(dup)").font(.system(size: 11)).foregroundStyle(Theme.txFaint).fixedSize()
             }
-            Text(timerInterval: cur.session.roundStart...Date.distantFuture, countsDown: false)
-                .font(Theme.mono).monospacedDigit()
-                .foregroundStyle(Theme.statusColor(cur.session.status))
-                .fixedSize()   // 时间不被压缩
+            // 同 RowView：弃 Text(timerInterval:)，超 1h 恒短两段式不换行
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                Text(Format.clock(ctx.date.timeIntervalSince(cur.session.roundStart)))
+                    .font(Theme.mono).monospacedDigit()
+                    .foregroundStyle(Theme.statusColor(cur.session.status))
+            }
+            .fixedSize()   // 时间不被压缩
         }
     }
 }

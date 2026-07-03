@@ -36,6 +36,24 @@ final class FormatTests: XCTestCase {
         XCTAssertEqual(Format.burnDur(25), "25m")
     }
 
+    /// 恒短两段式:超 1h 换挡为 时:分,超 24h 兜底 Nd+ —— 宽度封顶,HUD 行不换行
+    func testClockStaysNarrowBeyondOneHour() {
+        XCTAssertEqual(Format.clock(620), "10:20", "分钟态:分:秒")
+        XCTAssertEqual(Format.clock(3599), "59:59", "1h 边界前仍是 分:秒")
+        XCTAssertEqual(Format.clock(3600), "1:00", "满 1h 换挡:时:分")
+        XCTAssertEqual(Format.clock(3661), "1:01", "秒被截断,不进位")
+        XCTAssertEqual(Format.clock(13 * 3600 + 5 * 60), "13:05", "分钟补零")
+        XCTAssertEqual(Format.clock(86399), "23:59", "24h 边界前仍是 时:分")
+        XCTAssertEqual(Format.clock(86400), "1d+", "≥24h 异常态:天数兜底")
+        XCTAssertEqual(Format.clock(31 * 86400 + 7200), "31d+", "月级也同一口径")
+    }
+
+    func testClockDefendsAbnormalInput() {
+        XCTAssertEqual(Format.clock(-5), "0:00")
+        XCTAssertEqual(Format.clock(.nan), "0:00", "NaN 不得 crash(Int(NaN) 会 trap)")
+        XCTAssertEqual(Format.clock(.infinity), "0:00")
+    }
+
     func testResetTimeTomorrowPrefix() {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!

@@ -47,10 +47,16 @@ public enum Format {
         return s < 60 ? "\(s)s" : "\(s / 60)m"
     }
 
-    /// 用时 "4:32"（components.jsx fmtClock）
+    /// 轮次用时,恒短两段式（宽度 ≤5 字符，HUD 行不换行）：
+    /// <1h "分:秒"（4:32 / 10:20）；1–24h 换挡 "时:分"（1:01 / 13:05）；
+    /// ≥24h 异常兜底 "Nd+"——正常一轮跑不了一天，精确值无意义，恒短即可。
+    /// NaN/无穷/负数一律 "0:00"（Int(NaN) 会 trap，必须先挡）。
     public static func clock(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite else { return "0:00" }
         let s = max(0, Int(seconds))
-        return "\(s / 60):" + String(format: "%02d", s % 60)
+        if s < 3600 { return "\(s / 60):" + String(format: "%02d", s % 60) }
+        if s < 86400 { return "\(s / 3600):" + String(format: "%02d", (s % 3600) / 60) }
+        return "\(s / 86400)d+"
     }
 
     /// "HH:mm"（24 小时，补零）
