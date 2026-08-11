@@ -4,36 +4,41 @@ import CCHudCore
 /// 额度卡片的尺寸表。非紧凑档 = 设计稿 standalone(1).html 600pt 的 0.5×。
 /// 原属 AccountFooterView 私有 Metrics，抽出供刘海岛复用；数值一字未改。
 struct QuotaMetrics {
+    // outerTop 与 outerBottom 不等是有意的：页脚下方还叠着档容器的 6pt 内边距（PillList/Expanded 的 .padding），
+    // 故 顶隙=outerTop、底隙=outerBottom+6；取 7 / 1 → 两侧实际留白都是 7pt，静息条上下等距（对齐原型）。
     var outerTop: CGFloat = 7, outerBottom: CGFloat = 1, outerH: CGFloat = 8
-    var sectionGap: CGFloat = 5
-    var cardGap: CGFloat = 5
-    var restGap: CGFloat = 5
-    var restLabel: CGFloat = 7.5
-    var restIcon: CGFloat = 8.5
-    var restValue: CGFloat = 10.5
-    var restBarW: CGFloat = 42
-    var restBarH: CGFloat = 4
-    var restDivH: CGFloat = 10
-    var heroPadTop: CGFloat = 6, heroPadBottom: CGFloat = 6.5, heroPadH: CGFloat = 7.5
-    var heroRowBarGap: CGFloat = 5
-    var heroRadius: CGFloat = 6.5
-    var heroLeadGap: CGFloat = 4.5
-    var heroIcon: CGFloat = 9.5
-    var heroTime: CGFloat = 16.5
-    var heroUnit: CGFloat = 9
-    var heroPct: CGFloat = 11
-    var heroCd: CGFloat = 8.5
-    var heroBar: CGFloat = 4
-    var cardPadTop: CGFloat = 5, cardPadBottom: CGFloat = 5, cardPadH: CGFloat = 6.5
-    var cardGapV: CGFloat = 4
-    var cardRadius: CGFloat = 5.5
-    var sevenPct: CGFloat = 10.5
-    var smallBar: CGFloat = 3.5
-    var cdText: CGFloat = 8
-    var todayNum: CGFloat = 15.5
-    var todayUnit: CGFloat = 8
+    var sectionGap: CGFloat = 5      // 原型 hero→卡 margin-top 10
+    var cardGap: CGFloat = 5         // 原型 7d↔今日 gap 10
+    // 单行（原型静息条，元素 ×0.5）
+    var restGap: CGFloat = 5         // 原型 flex gap 10
+    var restLabel: CGFloat = 7.5     // 原型 5H/重置/今日 15
+    var restIcon: CGFloat = 8.5      // 原型 clock 17
+    var restValue: CGFloat = 10.5    // 原型 时刻/剩%/今日数 21
+    var restBarW: CGFloat = 42       // 原型 84
+    var restBarH: CGFloat = 4        // 原型 8
+    var restDivH: CGFloat = 10       // 原型 20
+    // hero（原型 5h 主卡）
+    var heroPadTop: CGFloat = 6, heroPadBottom: CGFloat = 6.5, heroPadH: CGFloat = 7.5  // 原型 12/13/15
+    var heroRowBarGap: CGFloat = 5   // 原型 bar margin-top 10
+    var heroRadius: CGFloat = 6.5    // 原型 13
+    var heroLeadGap: CGFloat = 4.5   // 原型 9
+    var heroIcon: CGFloat = 9.5      // 原型 clock 19
+    var heroTime: CGFloat = 16.5     // 原型 时刻 33
+    var heroUnit: CGFloat = 9        // 原型 重置 18
+    var heroPct: CGFloat = 11        // 原型 剩% 22
+    var heroCd: CGFloat = 8.5        // 原型 倒计时 17
+    var heroBar: CGFloat = 4         // 原型 8
+    // 第二行卡（7d / 今日）
+    var cardPadTop: CGFloat = 5, cardPadBottom: CGFloat = 5, cardPadH: CGFloat = 6.5  // 原型 10/10/13
+    var cardGapV: CGFloat = 4        // 原型 7d 内 margin-top 8
+    var cardRadius: CGFloat = 5.5    // 原型 11
+    var sevenPct: CGFloat = 10.5     // 原型 21
+    var smallBar: CGFloat = 3.5      // 原型 7
+    var cdText: CGFloat = 8          // 原型 16
+    var todayNum: CGFloat = 15.5     // 原型 31
+    var todayUnit: CGFloat = 8       // 原型 16
     var todaySpacerMin: CGFloat = 5
-    var label: CGFloat = 8
+    var label: CGFloat = 8           // 原型 hero/卡 标签 16
 
     static let standard = QuotaMetrics()
 
