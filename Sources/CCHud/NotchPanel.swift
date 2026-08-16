@@ -14,6 +14,16 @@ final class NotchPanel: NSPanel, VisibleContentProviding {
     private var settleTask: Task<Void, Never>?
     /// 岛的刘海几何,与窗口落位同源刷新(见 reposition)
     let metrics: NotchMetrics
+    /// 岛的悬停态。**必须是独立于浮窗的实例**——岛模式下点岛会把浮窗叫出来，
+    /// 两窗同时在屏时若共用 HoverState，鼠标停在岛上会把浮窗的额度页脚也一起展开。
+    weak var hoverState: HoverState?
+    private var isHovering = false
+    private var hoverTask: Task<Void, Never>?
+    /// 贴边小幅移动不横跳的空间迟滞（同 HUDPanel）
+    private let hoverMargin: CGFloat = 24
+    /// 展开前的停留时长：外接屏常挂在内置屏正上方，鼠标下移必然扫过刘海区，
+    /// 纯空间迟滞挡不住这种"路过"，只有时间判据能。
+    static let hoverDelay: Duration = .milliseconds(250)
 
     init(rootView: some View, metrics: NotchMetrics) {
         self.metrics = metrics
@@ -68,6 +78,29 @@ final class NotchPanel: NSPanel, VisibleContentProviding {
     }
 
     func setVisibleContentRect(_ r: CGRect) { visibleContentRect = r }
+
+    /// 悬停判定入口（AppDelegate 鼠标监视器每次移动调用，传屏幕坐标）。
+    /// 进入需停留 hoverDelay 才展开；移出立刻收（不加延迟——鼠标都走了岛还张着最碍事）。
+    func updateHover(at point: NSPoint) {
+        let m = isHovering ? hoverMargin : 0
+        // visibleContentRect 是窗口内容坐标（左上原点）→ 转屏幕坐标（左下原点）
+        let r = visibleContentRect
+        let screenRect = NSRect(x: frame.minX + r.minX, y: frame.maxY - r.maxY,
+                                width: r.width, height: r.height).insetBy(dx: -m, dy: -m)
+        let inside = screenRect.contains(point)
+        guard inside != isHovering else { return }
+        isHovering = inside
+        hoverTask?.cancel()
+        guard inside else {
+            hoverState?.footerExpanded = false
+            return
+        }
+        hoverTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.hoverDelay)
+            guard !Task.isCancelled, let self, self.isHovering else { return }
+            self.hoverState?.footerExpanded = true
+        }
+    }
 
     private func reposition() {
         guard let screen = Self.hostScreen() else { return }

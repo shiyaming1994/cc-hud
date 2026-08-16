@@ -45,17 +45,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 悬停判定：用「鼠标位置 vs 窗口 frame」而非随内容缩放的 tracking area，根除展开/收起抖动环。
     /// 鼠标移动时复核；frame 命中即悬停。窗口缩放本身不产生鼠标事件 → 不会误翻悬停态。
     /// 全局监视器覆盖 app 非 active（终端聚焦）时；本地监视器覆盖 app active 时。
-    private func installHoverMonitor(panelRef: WeakPanelRef) {
+    private func installHoverMonitor(panelRef: WeakPanelRef, notchRef: WeakNotchRef) {
         // 只听 .mouseMoved：拖动时是 .leftMouseDragged，不应触发悬停展开（会和拖动打架）。
         let mask: NSEvent.EventTypeMask = [.mouseMoved]
         let global = NSEvent.addGlobalMonitorForEvents(matching: mask) { _ in
             MainActor.assumeIsolated {
                 panelRef.panel?.updateHover(at: NSEvent.mouseLocation)
+                notchRef.panel?.updateHover(at: NSEvent.mouseLocation)
             }
         }
         let local = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
             MainActor.assumeIsolated {
                 panelRef.panel?.updateHover(at: NSEvent.mouseLocation)
+                notchRef.panel?.updateHover(at: NSEvent.mouseLocation)
             }
             return event
         }
@@ -155,7 +157,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelRef.panel = panel
         panel.orderFrontRegardless()
         self.panel = panel
-        installHoverMonitor(panelRef: panelRef)
 
         // 3.5 刘海岛（临时：无条件显示，Task 6 接模式开关）
         let notchHover = HoverState()
@@ -172,6 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notchRef.panel = notchPanel
         notchPanel.orderFrontRegardless()
         self.notchPanel = notchPanel
+        notchPanel.hoverState = notchHover
+        installHoverMonitor(panelRef: panelRef, notchRef: notchRef)
 
         // 4. 菜单栏(更新控制器先建——菜单要渲染更新状态)
         let updateController = UpdateController()
