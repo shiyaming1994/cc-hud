@@ -127,3 +127,10 @@ final class NotchPanel: NSPanel, VisibleContentProviding {
         }
     }
 }
+
+extension NotchPanel {
+    static let enabledKey = "hud.notchIsland"
+    /// 刘海岛模式：开 → 只显示岛；关 → 只显示浮窗。默认关（老用户升级后行为不变）。
+    static var enabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+    static func setEnabled(_ on: Bool) { UserDefaults.standard.set(on, forKey: enabledKey) }
+}

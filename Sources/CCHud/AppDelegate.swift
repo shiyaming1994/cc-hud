@@ -155,10 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panel = HUDPanel(rootView: root)
         panel.hoverState = hoverState
         panelRef.panel = panel
-        panel.orderFrontRegardless()
         self.panel = panel
 
-        // 3.5 刘海岛（临时：无条件显示，Task 6 接模式开关）
+        // 3.5 刘海岛：与浮窗互斥，由菜单「刘海岛模式」开关决定谁上屏（见 applyIslandMode）。
+        // 点岛可临时唤出浮窗（见 onTap），此时两者同屏。
         let notchHover = HoverState()
         let notchMetrics = NotchMetrics()
         let notchRef = WeakNotchRef()
@@ -168,10 +168,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hover: notchHover,
             onSizeChange: { size in notchRef.panel?.applyContentSize(size) },
             onVisibleRectChange: { r in notchRef.panel?.setVisibleContentRect(r) },
-            onTap: { })
+            onTap: { [weak self] in
+                guard let p = self?.panel else { return }
+                p.isVisible ? p.orderOut(nil) : p.orderFrontRegardless()
+            },
+        )
         let notchPanel = NotchPanel(rootView: island, metrics: notchMetrics)
         notchRef.panel = notchPanel
-        notchPanel.orderFrontRegardless()
         self.notchPanel = notchPanel
         notchPanel.hoverState = notchHover
         installHoverMonitor(panelRef: panelRef, notchRef: notchRef)
@@ -222,7 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             previewBurnout: { [weak self] in
                 // 设计稿示例：剩 8% · 25min 见底 · 距重置 4h52m → 断档 4h27m（重度）
                 self?.burnoutAlert.present(remainingPct: 8, dropMinutes: 267, timeLeft: 292 * 60)
-            })
+            },
+            islandModeChanged: { [weak self] in self?.applyIslandMode() })
+        applyIslandMode()
         if Self.isDevBuild {
             statusItem?.setInstallState(.devMode)
         } else if let serverError {
@@ -300,6 +305,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let productionBundleID = "io.github.shiyaming.cc-hud"
     /// 开发构建判定:非生产 bundle id(swift run 的裸二进制为 nil)即视为开发实例
     static var isDevBuild: Bool { Bundle.main.bundleIdentifier != productionBundleID }
+
+    /// 岛模式与浮窗互斥：开 → 只有岛；关 → 只有浮窗。
+    /// 点岛可临时把浮窗唤出来（见岛的 onTap），此时两者同屏——所以岛必须用独立 HoverState。
+    private func applyIslandMode() {
+        if NotchPanel.enabled {
+            panel?.orderOut(nil)
+            notchPanel?.orderFrontRegardless()
+        } else {
+            notchPanel?.orderOut(nil)
+            panel?.orderFrontRegardless()
+        }
+    }
 
     private func runInstall(force: Bool) {
         if !force && UserDefaults.standard.bool(forKey: Self.uninstalledKey) { return }

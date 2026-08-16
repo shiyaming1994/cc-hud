@@ -22,6 +22,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let previewAnimation: (String) -> Void
     private let eventStatus: () -> String
     private let previewBurnout: () -> Void
+    private let islandModeChanged: () -> Void
     private let updateController: UpdateController
     private var installState: InstallState = .failed("未安装")
     /// 当前菜单里的更新横幅项(仅可点状态);高亮切换时在 accent 蓝与系统反白之间换色
@@ -31,7 +32,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
          togglePanel: @escaping () -> Void, reinstall: @escaping () -> Void,
          uninstall: @escaping () -> Void, eventStatus: @escaping () -> String,
          previewAnimation: @escaping (String) -> Void,
-         previewBurnout: @escaping () -> Void) {
+         previewBurnout: @escaping () -> Void,
+         islandModeChanged: @escaping () -> Void) {
         self.updateController = updateController
         self.togglePanel = togglePanel
         self.reinstall = reinstall
@@ -39,6 +41,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.eventStatus = eventStatus
         self.previewAnimation = previewAnimation
         self.previewBurnout = previewBurnout
+        self.islandModeChanged = islandModeChanged
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         item.button?.image = NSImage(systemSymbolName: "rectangle.stack.fill",
@@ -123,6 +126,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
         menu.addItem(.separator())
+        let islandItem = makeItem("刘海岛模式", #selector(toggleIslandMode))
+        islandItem.state = NotchPanel.enabled ? .on : .off
+        islandItem.toolTip = "只在刘海上显示额度,隐藏会话浮窗;点击岛可临时唤出浮窗"
+        menu.addItem(islandItem)
         menu.addItem(makeItem("显示 / 隐藏 HUD", #selector(togglePanelAction)))
         menu.addItem(.separator())
         // ── 设置(高频开关留顶层,随手可切)
@@ -216,6 +223,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         } else {
             try? SMAppService.mainApp.register()
         }
+        rebuildMenu()
+    }
+    @objc private func toggleIslandMode() {
+        NotchPanel.setEnabled(!NotchPanel.enabled)
+        islandModeChanged()
         rebuildMenu()
     }
     @objc private func reinstallAction() { reinstall() }
