@@ -194,15 +194,34 @@ private extension NSScreen {
     }
 }
 
-/// 宿主视图：窗口恒为展开尺寸，静息时可见玻璃只占顶部、其下是透明预留区。
-/// 让预留区的点击**穿透**到下方窗口（不然会挡住终端）；玻璃区（顶部 visibleHeight 内）正常命中 SwiftUI 子视图。
+/// 窗口向宿主视图声明「可见内容矩形」（窗口内容坐标系，左上原点、y 向下）：
+/// 该矩形之外是透明预留区，点击必须穿透到下方窗口。
+/// 浮窗只需按高度裁（矩形宽 = 整窗），刘海岛还要按宽度裁（静息岛比窗口窄）。
+@MainActor
+protocol VisibleContentProviding: AnyObject {
+    var visibleContentRect: CGRect { get }
+}
+
+extension HUDPanel: VisibleContentProviding {
+    /// 玻璃顶对齐、占满窗口宽度。hitTest 用显式四边比较保证闭区间，与旧的「只比高度」判据等价。
+    var visibleContentRect: CGRect {
+        CGRect(x: 0, y: 0, width: frame.width, height: visibleHeight)
+    }
+}
+
+/// 宿主视图：窗口恒为展开尺寸，静息时可见内容只占其中一块，其余是透明预留区。
+/// 让预留区的点击**穿透**到下方窗口（不然会挡住终端 / 菜单栏）；可见矩形内正常命中 SwiftUI 子视图。
 final class PassThroughHostingView<V: View>: NSHostingView<V> {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // 玻璃顶对齐，占顶部 visibleHeight；其下透明预留区 → 返回 nil 穿透
-        let opaque = (window as? HUDPanel)?.visibleHeight ?? .greatestFiniteMagnitude
+        guard let provider = window as? VisibleContentProviding else { return super.hitTest(point) }
         let local = convert(point, from: superview)
-        let fromTop = isFlipped ? local.y : bounds.height - local.y
-        if fromTop > opaque + 0.5 { return nil }
+        // 统一到窗口内容坐标（左上原点、y 向下），与 visibleContentRect 同系
+        let p = CGPoint(x: local.x, y: isFlipped ? local.y : bounds.height - local.y)
+        // 0.5 容差沿用旧实现；显式四边比较而非 CGRect.contains ——
+        // contains 对 max 边排他，会让 maxY+0.5 那一行从"命中"变成"穿透"，与旧判据不等价
+        let r = provider.visibleContentRect
+        guard p.x >= r.minX - 0.5, p.x <= r.maxX + 0.5,
+              p.y >= r.minY - 0.5, p.y <= r.maxY + 0.5 else { return nil }
         return super.hitTest(point)
     }
 }
