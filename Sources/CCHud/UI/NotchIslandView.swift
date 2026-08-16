@@ -17,16 +17,20 @@ struct NotchIslandView: View {
 
     private var account: AccountUsage { store.account }
     private var todayTokens: Int? { store.todayTokens }
-    /// 四项全无 → 岛不上屏（未登录 Pro/Max 时不要一条空黑块杵在刘海上）
+    /// 三源全无 → 岛不上屏（未登录 Pro/Max 时不要一条空黑块杵在刘海上）。
+    /// todayTokens 是非可选 Int——扫描失败/未启动时恒为 0（见 DailyTokenScanner.scanTodayTokens），
+    /// 不是 nil，所以必须判 >0 才算"有数据"；判 != nil 从进程启动第一秒起就恒真，形同虚设。
     private var hasData: Bool {
-        account.fiveHourUsedPct != nil || account.sevenDayUsedPct != nil || todayTokens != nil
+        account.fiveHourUsedPct != nil || account.sevenDayUsedPct != nil || (todayTokens ?? 0) > 0
     }
 
     var body: some View {
         if hasData {
             ZStack(alignment: .top) {
-                // 尺寸探针：恒展开、隐藏、不参与命中 → 窗口恒为展开尺寸，静息时只画中间一块
-                expandedIsland
+                // 尺寸探针：静息、展开两态都参与测量（各自实际宽度不同——静息态两翼撑开后
+                // 实测比展开态的定宽 320 还宽），取两态并集 → 窗口尺寸恒定，悬停展开/收起
+                // 不再触发 setFrame。隐藏、不参与命中，只用来撑 ZStack 的尺寸。
+                ZStack { expandedIsland; restingIsland }
                     .hidden()
                     .allowsHitTesting(false)
                 // 可见岛体（.global 在 NSHostingView 下即窗口内容坐标，左上原点——同 HoverState.rowRects 的上报口径）
@@ -50,9 +54,13 @@ struct NotchIslandView: View {
 
     private var restingIsland: some View {
         HStack(spacing: 0) {
-            leftWing
+            // 两翼各自是 .fixedSize() 内容自适应宽度，实际宽度常不相等（跨天"明日"前缀 /
+            // 缺 7d 数据 / 纯 token 用户……）。中间占位要落在真实刘海正中，两侧就必须测量成
+            // 同一宽度——用 ZStack 把对侧翼藏起来陪测，取 max(左翼宽, 右翼宽)，再各自贴住
+            // 自己那侧刘海边缘（.trailing / .leading），不能像之前那样直接拼接两个不等宽的翼。
+            ZStack(alignment: .trailing) { rightWing.hidden(); leftWing }
             Color.clear.frame(width: metrics.notchWidth)   // 刘海占位：一个像素都不画
-            rightWing
+            ZStack(alignment: .leading) { leftWing.hidden(); rightWing }
         }
         .frame(height: metrics.notchHeight)
         .background(Color.black)

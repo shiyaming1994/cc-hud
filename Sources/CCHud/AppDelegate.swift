@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var scanTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private let hoverState = HoverState()
+    /// 岛的独立悬停态（与浮窗的 hoverState 分开的实例——两窗同屏时若共用一个,鼠标停在
+    /// 其中一个上会把另一个的额度页脚也带着展开，见 NotchPanel.hoverState 处的说明）。
+    /// 提升成存储属性是因为 applyIslandMode() 隐藏岛时要把它的 footerExpanded 收回去。
+    private let notchHoverState = HoverState()
     private var hoverMonitors: [Any] = []
 
     private var claudeDir: URL {
@@ -159,13 +163,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 3.5 刘海岛：与浮窗互斥，由菜单「刘海岛模式」开关决定谁上屏（见 applyIslandMode）。
         // 点岛可临时唤出浮窗（见 onTap），此时两者同屏。
-        let notchHover = HoverState()
         let notchMetrics = NotchMetrics()
         let notchRef = WeakNotchRef()
         let island = NotchIslandView(
             store: store,
             metrics: notchMetrics,
-            hover: notchHover,
+            hover: notchHoverState,
             onSizeChange: { size in notchRef.panel?.applyContentSize(size) },
             onVisibleRectChange: { r in notchRef.panel?.setVisibleContentRect(r) },
             onTap: { [weak self] in
@@ -176,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let notchPanel = NotchPanel(rootView: island, metrics: notchMetrics)
         notchRef.panel = notchPanel
         self.notchPanel = notchPanel
-        notchPanel.hoverState = notchHover
+        notchPanel.hoverState = notchHoverState
         installHoverMonitor(panelRef: panelRef, notchRef: notchRef)
 
         // 4. 菜单栏(更新控制器先建——菜单要渲染更新状态)
@@ -314,6 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notchPanel?.orderFrontRegardless()
         } else {
             notchPanel?.orderOut(nil)
+            notchHoverState.footerExpanded = false   // 隐藏岛时收起展开态，下次显示别是已展开的
             panel?.orderFrontRegardless()
         }
     }

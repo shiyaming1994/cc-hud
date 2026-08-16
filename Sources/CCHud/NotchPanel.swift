@@ -9,7 +9,8 @@ import CCHudCore
 final class NotchPanel: NSPanel, VisibleContentProviding {
     /// 可见岛体在窗口内容坐标（左上原点）的矩形；其外是透明预留区，点击穿透。
     private(set) var visibleContentRect: CGRect = .zero
-    /// 窗口尺寸 = 展开态尺寸（由隐藏探针恒定给出），静息时只画中间一小块。
+    /// 窗口尺寸 = 静息态与展开态的并集尺寸（由隐藏探针恒定给出，两态都参与测量），
+    /// 静息/展开各自只画其中一块——谁都不会比探针尺寸大，悬停切换不会触发 setFrame。
     private var contentSize = CGSize(width: 360, height: 110)
     private var settleTask: Task<Void, Never>?
     /// 岛的刘海几何,与窗口落位同源刷新(见 reposition)
@@ -70,7 +71,7 @@ final class NotchPanel: NSPanel, VisibleContentProviding {
         return top > 0 ? top : max(screen.frame.maxY - screen.visibleFrame.maxY, 24)
     }
 
-    /// SwiftUI 内容尺寸（= 展开态，恒定）变化 → 重新落位。
+    /// SwiftUI 内容尺寸（= 静息/展开并集，恒定）变化 → 重新落位。
     func applyContentSize(_ size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }
         contentSize = CGSize(width: size.width.rounded(), height: size.height.rounded())
@@ -82,6 +83,7 @@ final class NotchPanel: NSPanel, VisibleContentProviding {
     /// 悬停判定入口（AppDelegate 鼠标监视器每次移动调用，传屏幕坐标）。
     /// 进入需停留 hoverDelay 才展开；移出立刻收（不加延迟——鼠标都走了岛还张着最碍事）。
     func updateHover(at point: NSPoint) {
+        guard isVisible else { return }   // 岛隐藏(默认关闭岛模式)时不跑悬停判定，不给老用户默认配置添后台工作
         let m = isHovering ? hoverMargin : 0
         // visibleContentRect 是窗口内容坐标（左上原点）→ 转屏幕坐标（左下原点）
         let r = visibleContentRect
