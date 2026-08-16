@@ -1,6 +1,7 @@
 #!/bin/bash
 # 向运行中的 CC HUD 发送一组假事件，遍历四种状态 + 账户配额，肉眼验收 UI。
-SOCK="$HOME/.claude/cc-hud/hud.sock"
+# 默认打生产 socket；开发构建冒烟时传 CC_HUD_SOCK=~/.claude/cc-hud/hud-dev.sock
+SOCK="${CC_HUD_SOCK:-$HOME/.claude/cc-hud/hud.sock}"
 send() { printf '%s' "$1" | python3 -c "
 import socket, sys
 data = sys.stdin.buffer.read()

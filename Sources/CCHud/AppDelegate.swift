@@ -8,6 +8,11 @@ final class WeakPanelRef {
 }
 
 @MainActor
+final class WeakNotchRef {
+    weak var panel: NotchPanel?
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = StateStore()
     let animator = CompletionAnimator()
@@ -15,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let burnoutAlert = BurnoutAlertController()
     var server: EventServer?
     var panel: HUDPanel?
+    var notchPanel: NotchPanel?
     var statusItem: StatusItemController?
     var updateController: UpdateController?
     var livenessTimer: Timer?
@@ -150,6 +156,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
         self.panel = panel
         installHoverMonitor(panelRef: panelRef)
+
+        // 3.5 刘海岛（临时：无条件显示，Task 6 接模式开关）
+        let notchHover = HoverState()
+        let notchScreen = NotchPanel.hostScreen()
+        let notchRef = WeakNotchRef()
+        let island = NotchIslandView(
+            store: store,
+            notchWidth: notchScreen.flatMap { NotchPanel.notch(of: $0) }?.width ?? 0,
+            notchHeight: notchScreen.map { NotchPanel.notchHeight(of: $0) } ?? 28,
+            hover: notchHover,
+            onSizeChange: { size in notchRef.panel?.applyContentSize(size) },
+            onVisibleRectChange: { r in notchRef.panel?.setVisibleContentRect(r) },
+            onTap: { })
+        let notchPanel = NotchPanel(rootView: island)
+        notchRef.panel = notchPanel
+        notchPanel.orderFrontRegardless()
+        self.notchPanel = notchPanel
 
         // 4. 菜单栏(更新控制器先建——菜单要渲染更新状态)
         let updateController = UpdateController()
