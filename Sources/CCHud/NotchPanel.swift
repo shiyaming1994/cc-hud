@@ -12,8 +12,11 @@ final class NotchPanel: NSPanel, VisibleContentProviding {
     /// 窗口尺寸 = 展开态尺寸（由隐藏探针恒定给出），静息时只画中间一小块。
     private var contentSize = CGSize(width: 360, height: 110)
     private var settleTask: Task<Void, Never>?
+    /// 岛的刘海几何,与窗口落位同源刷新(见 reposition)
+    let metrics: NotchMetrics
 
-    init(rootView: some View) {
+    init(rootView: some View, metrics: NotchMetrics) {
+        self.metrics = metrics
         super.init(contentRect: NSRect(x: 0, y: 0, width: 360, height: 110),
                    styleMask: [.nonactivatingPanel, .borderless],
                    backing: .buffered, defer: false)
@@ -68,8 +71,12 @@ final class NotchPanel: NSPanel, VisibleContentProviding {
 
     private func reposition() {
         guard let screen = Self.hostScreen() else { return }
+        let notch = Self.notch(of: screen)
+        // 视图内部布局与窗口位置同源:换屏后刘海变了/没了,占位宽度必须一起跟进
+        metrics.notchWidth = notch?.width ?? 0
+        metrics.notchHeight = Self.notchHeight(of: screen)
         let f = NotchGeometry.islandFrame(screenFrame: screen.frame,
-                                          notch: Self.notch(of: screen),
+                                          notch: notch,
                                           contentSize: contentSize)
         guard f != frame else { return }
         setFrame(f, display: true)

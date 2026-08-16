@@ -159,17 +159,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 3.5 刘海岛（临时：无条件显示，Task 6 接模式开关）
         let notchHover = HoverState()
-        let notchScreen = NotchPanel.hostScreen()
+        let notchMetrics = NotchMetrics()
         let notchRef = WeakNotchRef()
         let island = NotchIslandView(
             store: store,
-            notchWidth: notchScreen.flatMap { NotchPanel.notch(of: $0) }?.width ?? 0,
-            notchHeight: notchScreen.map { NotchPanel.notchHeight(of: $0) } ?? 28,
+            metrics: notchMetrics,
             hover: notchHover,
             onSizeChange: { size in notchRef.panel?.applyContentSize(size) },
             onVisibleRectChange: { r in notchRef.panel?.setVisibleContentRect(r) },
             onTap: { })
-        let notchPanel = NotchPanel(rootView: island)
+        let notchPanel = NotchPanel(rootView: island, metrics: notchMetrics)
         notchRef.panel = notchPanel
         notchPanel.orderFrontRegardless()
         self.notchPanel = notchPanel
