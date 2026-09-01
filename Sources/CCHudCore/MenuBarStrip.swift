@@ -1,0 +1,77 @@
+import CoreGraphics
+import Foundation
+
+/// 菜单栏额度条的几何与展示判据。
+/// 纯函数、不碰 AppKit（选屏与窗口枚举留给 app 层）——多屏 / 负坐标 / 刘海避让 / 边界夹取
+/// 这些分支不单测必出事，与 NotchGeometry 同样的可测性考量。
+public enum MenuBarStrip {
+    /// CGWindowList 坐标（左上原点、y 向下、原点在主屏左上）→ NSScreen 坐标（左下原点、y 向上）。
+    /// 主屏之上的显示器 CG y 为负，转换后 NS y 大于主屏高；x 两系一致、不翻转。
+    public static func nsRect(fromCG r: CGRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(x: r.minX, y: primaryHeight - r.minY - r.height,
+               width: r.width, height: r.height)
+    }
+
+    /// 条子 frame（NS 坐标）：整条填满菜单栏高度，右缘贴状态项左缘 - gap，内容变宽向左生长。
+    /// - 拿不到状态项左缘（枚举失败 / 该屏无状态项）→ 居中于菜单栏，不硬贴屏右缘压住时钟。
+    /// - 与刘海相交 → 整条推到刘海左侧（选到内置屏时才可能发生）。
+    /// - 无论如何都夹在菜单栏矩形内，绝不越出屏外。
+    public static func frame(bar: CGRect, statusItemsMinX: CGFloat?, notch: CGRect?,
+                             contentWidth: CGFloat, gap: CGFloat = 12) -> CGRect {
+        let w = min(contentWidth, bar.width)
+        var x = statusItemsMinX.map { $0 - gap - w } ?? (bar.midX - w / 2)
+        // 刘海避让：只在真相交时才推，够窄能落在刘海右侧就不动
+        if let notch, x < notch.maxX, x + w > notch.minX {
+            x = notch.minX - gap - w
+        }
+        x = min(max(x, bar.minX), bar.maxX - w)
+        return CGRect(x: x, y: bar.minY, width: w, height: bar.height)
+    }
+
+    /// 枚举不到 layer-24 菜单栏窗口时的兜底矩形：顶部内缩量推得出就用它（主屏会把菜单栏
+    /// 从 visibleFrame 里扣掉），推不出就用系统菜单栏厚度（实测外接屏 visibleFrame == frame，
+    /// 顶部什么都不扣）。宁可条子落在一个估出来的位置，也不能整条消失。
+    public static func fallbackBar(screenFrame: CGRect, visibleFrame: CGRect,
+                                   defaultHeight: CGFloat) -> CGRect {
+        let inset = screenFrame.maxY - visibleFrame.maxY
+        let h = inset > 1 ? inset : defaultHeight
+        return CGRect(x: screenFrame.minX, y: screenFrame.maxY - h,
+                      width: screenFrame.width, height: h)
+    }
+
+    /// 7D 重置时刻是否值得占这点宽度：剩余低于 20%，或距重置不足 24h。
+    /// 没有重置时刻就没东西可展示，直接不展示。
+    public static func showsSevenDayReset(remainPct: Double, resetsAt: Date?, now: Date) -> Bool {
+        guard let resetsAt else { return false }
+        return remainPct < AccountUsage.lowQuotaRemainPct
+            || resetsAt.timeIntervalSince(now) < 24 * 3600
+    }
+
+    /// 显示器菜单项文案：同名的按 x 从左到右加方位后缀（本机就是两台同名 T2752U），
+    /// 唯一名保持原样。返回顺序与入参一致。
+    public static func displayLabels(_ screens: [(name: String, minX: CGFloat)]) -> [String] {
+        var counts: [String: Int] = [:]
+        for s in screens { counts[s.name, default: 0] += 1 }
+        // 同名组内按 x 升序 → 该屏在组里的序号
+        var ranks: [String: [Int]] = [:]   // name → 按 x 排序后的原始下标
+        for name in counts.keys where counts[name]! > 1 {
+            ranks[name] = screens.indices
+                .filter { screens[$0].name == name }
+                .sorted { screens[$0].minX < screens[$1].minX }
+        }
+        return screens.indices.map { i in
+            let name = screens[i].name
+            guard let order = ranks[name], let rank = order.firstIndex(of: i) else { return name }
+            return name + "（" + suffix(rank: rank, of: order.count) + "）"
+        }
+    }
+
+    private static func suffix(rank: Int, of total: Int) -> String {
+        switch (total, rank) {
+        case (2, 0), (3, 0): return "左"
+        case (2, 1), (3, 2): return "右"
+        case (3, 1): return "中"
+        default: return "\(rank + 1)"    // 4 块以上同名：方位说不清了，退回序号
+        }
+    }
+}
