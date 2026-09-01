@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import ApplicationServices
+import CCHudCore
 
 /// 接入状态的结构化表达——菜单状态行按 case 渲染:正常灰色一行,异常显眼可点
 enum InstallState {
@@ -22,7 +23,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let previewAnimation: (String) -> Void
     private let eventStatus: () -> String
     private let previewBurnout: () -> Void
-    private let islandModeChanged: () -> Void
+    private let stripModeChanged: () -> Void
+    private let stripScreenChanged: () -> Void
     private let updateController: UpdateController
     private var installState: InstallState = .failed("未安装")
     /// 当前菜单里的更新横幅项(仅可点状态);高亮切换时在 accent 蓝与系统反白之间换色
@@ -33,7 +35,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
          uninstall: @escaping () -> Void, eventStatus: @escaping () -> String,
          previewAnimation: @escaping (String) -> Void,
          previewBurnout: @escaping () -> Void,
-         islandModeChanged: @escaping () -> Void) {
+         stripModeChanged: @escaping () -> Void,
+         stripScreenChanged: @escaping () -> Void) {
         self.updateController = updateController
         self.togglePanel = togglePanel
         self.reinstall = reinstall
@@ -41,7 +44,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.eventStatus = eventStatus
         self.previewAnimation = previewAnimation
         self.previewBurnout = previewBurnout
-        self.islandModeChanged = islandModeChanged
+        self.stripModeChanged = stripModeChanged
+        self.stripScreenChanged = stripScreenChanged
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         item.button?.image = NSImage(systemSymbolName: "rectangle.stack.fill",
@@ -126,10 +130,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
         menu.addItem(.separator())
-        let islandItem = makeItem("刘海岛模式", #selector(toggleIslandMode))
-        islandItem.state = NotchPanel.enabled ? .on : .off
-        islandItem.toolTip = "只在刘海上显示额度,隐藏会话浮窗;点击岛可临时唤出浮窗"
-        menu.addItem(islandItem)
+        let stripItem = makeItem("菜单栏额度条", #selector(toggleStripMode))
+        stripItem.state = MenuBarStripPanel.enabled ? .on : .off
+        stripItem.toolTip = "在指定显示器的菜单栏上常驻一行额度,隐藏会话浮窗;条子不吃鼠标,看会话列表走下面的「显示 / 隐藏 HUD」"
+        menu.addItem(stripItem)
+        let screenRoot = NSMenuItem(title: "常驻显示器", action: nil, keyEquivalent: "")
+        screenRoot.submenu = buildScreenMenu()
+        menu.addItem(screenRoot)
         menu.addItem(makeItem("显示 / 隐藏 HUD", #selector(togglePanelAction)))
         menu.addItem(.separator())
         // ── 设置(高频开关留顶层,随手可切)
@@ -184,6 +191,40 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(makeItem("退出", #selector(quit)))
     }
 
+    /// 常驻显示器子菜单：自动（主屏）+ 在场各屏。同名显示器按 x 从左到右加方位后缀
+    /// （本机就是两台同名 T2752U）；存档屏不在场时补一行灰字说明，免得用户以为设置丢了。
+    private func buildScreenMenu() -> NSMenu {
+        let m = NSMenu()
+        let saved = MenuBarStripPanel.savedScreenUUID
+        let auto = NSMenuItem(title: "自动（主屏）", action: #selector(pickStripScreen(_:)), keyEquivalent: "")
+        auto.target = self
+        auto.representedObject = ""
+        auto.state = saved == nil ? .on : .off
+        m.addItem(auto)
+        m.addItem(.separator())
+        let screens = NSScreen.screens
+        let labels = MenuBarStrip.displayLabels(screens.map { ($0.localizedName, $0.frame.minX) })
+        var sawSaved = false
+        for (i, s) in screens.enumerated() {
+            guard let uuid = s.displayUUID else { continue }
+            let mi = NSMenuItem(title: labels[i], action: #selector(pickStripScreen(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.representedObject = uuid
+            mi.state = saved == uuid ? .on : .off
+            if saved == uuid { sawSaved = true }
+            m.addItem(mi)
+        }
+        if let saved, !sawSaved {
+            let miss = NSMenuItem(title: "上次选择的显示器未连接 · 暂落主屏", action: nil, keyEquivalent: "")
+            miss.isEnabled = false
+            miss.state = .on
+            miss.toolTip = "存档没有被覆盖,那块屏一插回来条子就自己回去（UUID \(saved)）"
+            m.addItem(.separator())
+            m.addItem(miss)
+        }
+        return m
+    }
+
     private func makeItem(_ title: String, _ sel: Selector) -> NSMenuItem {
         let mi = NSMenuItem(title: title, action: sel, keyEquivalent: "")
         mi.target = self
@@ -225,9 +266,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         rebuildMenu()
     }
-    @objc private func toggleIslandMode() {
-        NotchPanel.setEnabled(!NotchPanel.enabled)
-        islandModeChanged()
+    @objc private func toggleStripMode() {
+        MenuBarStripPanel.setEnabled(!MenuBarStripPanel.enabled)
+        stripModeChanged()
+        rebuildMenu()
+    }
+    @objc private func pickStripScreen(_ sender: NSMenuItem) {
+        let uuid = sender.representedObject as? String
+        MenuBarStripPanel.setScreenUUID(uuid?.isEmpty == false ? uuid : nil)
+        stripScreenChanged()
         rebuildMenu()
     }
     @objc private func reinstallAction() { reinstall() }

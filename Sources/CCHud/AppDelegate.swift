@@ -8,8 +8,8 @@ final class WeakPanelRef {
 }
 
 @MainActor
-final class WeakNotchRef {
-    weak var panel: NotchPanel?
+final class WeakStripRef {
+    weak var panel: MenuBarStripPanel?
 }
 
 @MainActor
@@ -20,17 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let burnoutAlert = BurnoutAlertController()
     var server: EventServer?
     var panel: HUDPanel?
-    var notchPanel: NotchPanel?
+    var stripPanel: MenuBarStripPanel?
     var statusItem: StatusItemController?
     var updateController: UpdateController?
     var livenessTimer: Timer?
     var scanTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private let hoverState = HoverState()
-    /// 岛的独立悬停态（与浮窗的 hoverState 分开的实例——两窗同屏时若共用一个,鼠标停在
-    /// 其中一个上会把另一个的额度页脚也带着展开，见 NotchPanel.hoverState 处的说明）。
-    /// 提升成存储属性是因为 applyIslandMode() 隐藏岛时要把它的 footerExpanded 收回去。
-    private let notchHoverState = HoverState()
     private var hoverMonitors: [Any] = []
 
     private var claudeDir: URL {
@@ -49,19 +45,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 悬停判定：用「鼠标位置 vs 窗口 frame」而非随内容缩放的 tracking area，根除展开/收起抖动环。
     /// 鼠标移动时复核；frame 命中即悬停。窗口缩放本身不产生鼠标事件 → 不会误翻悬停态。
     /// 全局监视器覆盖 app 非 active（终端聚焦）时；本地监视器覆盖 app active 时。
-    private func installHoverMonitor(panelRef: WeakPanelRef, notchRef: WeakNotchRef) {
+    private func installHoverMonitor(panelRef: WeakPanelRef) {
         // 只听 .mouseMoved：拖动时是 .leftMouseDragged，不应触发悬停展开（会和拖动打架）。
         let mask: NSEvent.EventTypeMask = [.mouseMoved]
         let global = NSEvent.addGlobalMonitorForEvents(matching: mask) { _ in
             MainActor.assumeIsolated {
                 panelRef.panel?.updateHover(at: NSEvent.mouseLocation)
-                notchRef.panel?.updateHover(at: NSEvent.mouseLocation)
             }
         }
         let local = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
             MainActor.assumeIsolated {
                 panelRef.panel?.updateHover(at: NSEvent.mouseLocation)
-                notchRef.panel?.updateHover(at: NSEvent.mouseLocation)
             }
             return event
         }
@@ -161,26 +155,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelRef.panel = panel
         self.panel = panel
 
-        // 3.5 刘海岛：与浮窗互斥，由菜单「刘海岛模式」开关决定谁上屏（见 applyIslandMode）。
-        // 点岛可临时唤出浮窗（见 onTap），此时两者同屏。
-        let notchMetrics = NotchMetrics()
-        let notchRef = WeakNotchRef()
-        let island = NotchIslandView(
+        // 3.5 菜单栏额度条：与浮窗互斥，由菜单「菜单栏额度条」开关决定谁上屏（见 applyStripMode）。
+        // 全窗穿透、不吃鼠标，所以不进悬停监视器。
+        let stripRef = WeakStripRef()
+        let strip = MenuBarStripView(
             store: store,
-            metrics: notchMetrics,
-            hover: notchHoverState,
-            onSizeChange: { size in notchRef.panel?.applyContentSize(size) },
-            onVisibleRectChange: { r in notchRef.panel?.setVisibleContentRect(r) },
-            onTap: { [weak self] in
-                guard let p = self?.panel else { return }
-                p.isVisible ? p.orderOut(nil) : p.orderFrontRegardless()
-            },
-        )
-        let notchPanel = NotchPanel(rootView: island, metrics: notchMetrics)
-        notchRef.panel = notchPanel
-        self.notchPanel = notchPanel
-        notchPanel.hoverState = notchHoverState
-        installHoverMonitor(panelRef: panelRef, notchRef: notchRef)
+            onWidthChange: { w in stripRef.panel?.applyContentWidth(w) })
+        let stripPanel = MenuBarStripPanel(rootView: strip)
+        stripRef.panel = stripPanel
+        self.stripPanel = stripPanel
+        installHoverMonitor(panelRef: panelRef)
 
         // 4. 菜单栏(更新控制器先建——菜单要渲染更新状态)
         let updateController = UpdateController()
@@ -229,8 +213,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // 设计稿示例：剩 8% · 25min 见底 · 距重置 4h52m → 断档 4h27m（重度）
                 self?.burnoutAlert.present(remainingPct: 8, dropMinutes: 267, timeLeft: 292 * 60)
             },
-            islandModeChanged: { [weak self] in self?.applyIslandMode() })
-        applyIslandMode()
+            stripModeChanged: { [weak self] in self?.applyStripMode() },
+            stripScreenChanged: { [weak self] in self?.stripPanel?.applyScreenSelection() })
+        applyStripMode()
         if Self.isDevBuild {
             statusItem?.setInstallState(.devMode)
         } else if let serverError {
@@ -309,15 +294,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 开发构建判定:非生产 bundle id(swift run 的裸二进制为 nil)即视为开发实例
     static var isDevBuild: Bool { Bundle.main.bundleIdentifier != productionBundleID }
 
-    /// 岛模式与浮窗互斥：开 → 只有岛；关 → 只有浮窗。
-    /// 点岛可临时把浮窗唤出来（见岛的 onTap），此时两者同屏——所以岛必须用独立 HoverState。
-    private func applyIslandMode() {
-        if NotchPanel.enabled {
+    /// 额度条与浮窗互斥：开 → 只有菜单栏那一行；关 → 只有会话浮窗。
+    /// 条子不吃鼠标，要看会话列表走菜单「显示 / 隐藏 HUD」。
+    private func applyStripMode() {
+        if MenuBarStripPanel.enabled {
             panel?.orderOut(nil)
-            notchPanel?.orderFrontRegardless()
+            stripPanel?.setVisible(true)
         } else {
-            notchPanel?.orderOut(nil)
-            notchHoverState.footerExpanded = false   // 隐藏岛时收起展开态，下次显示别是已展开的
+            stripPanel?.setVisible(false)
             panel?.orderFrontRegardless()
         }
     }

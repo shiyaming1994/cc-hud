@@ -33,27 +33,4 @@ final class NotchGeometryTests: XCTestCase {
         XCTAssertNil(NotchGeometry.notchRect(screenFrame: builtIn, safeAreaTop: 28,
                                              auxLeft: l, auxRight: r))
     }
-
-    func testIslandFrameCentersOnNotch() {
-        let notch = CGRect(x: 668, y: 939, width: 160, height: 28)
-        let f = NotchGeometry.islandFrame(screenFrame: builtIn, notch: notch,
-                                          contentSize: CGSize(width: 360, height: 110))
-        XCTAssertEqual(f, CGRect(x: 568, y: 857, width: 360, height: 110),
-                       "顶边贴屏顶(967-110)，水平居中于刘海中心 748")
-    }
-
-    func testIslandFrameCentersOnScreenWhenNoNotch() {
-        let f = NotchGeometry.islandFrame(screenFrame: external, notch: nil,
-                                          contentSize: CGSize(width: 360, height: 110))
-        XCTAssertEqual(f, CGRect(x: -357, y: 1937, width: 360, height: 110),
-                       "无刘海 → 居中于屏心 -177，顶边贴屏顶 2047-110")
-    }
-
-    func testIslandFrameClampsOversizeContent() {
-        let notch = CGRect(x: 668, y: 939, width: 160, height: 28)
-        let f = NotchGeometry.islandFrame(screenFrame: builtIn, notch: notch,
-                                          contentSize: CGSize(width: 2000, height: 110))
-        XCTAssertEqual(f, CGRect(x: 0, y: 857, width: 1496, height: 110),
-                       "内容超屏宽 → 夹到屏宽并贴左边界，不越界")
-    }
 }
