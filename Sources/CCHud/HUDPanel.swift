@@ -183,17 +183,6 @@ extension NSRect {
     }
 }
 
-private extension NSScreen {
-    /// 物理显示器 UUID（EDID 派生）：同一台显示器拔插、睡眠、换口都稳定；
-    /// NSScreenNumber(displayID) 每次插拔可能变，不能当持久身份。
-    var displayUUID: String? {
-        guard let n = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-              let u = CGDisplayCreateUUIDFromDisplayID(n.uint32Value)?.takeRetainedValue()
-        else { return nil }
-        return CFUUIDCreateString(nil, u) as String
-    }
-}
-
 /// 窗口向宿主视图声明「可见内容矩形」（窗口内容坐标系，左上原点、y 向下）：
 /// 该矩形之外是透明预留区，点击必须穿透到下方窗口。
 /// 浮窗只需按高度裁（矩形宽 = 整窗），刘海岛还要按宽度裁（静息岛比窗口窄）。
