@@ -57,13 +57,24 @@ public enum StripStyle {
         }
     }
 
-    /// 光晕：设计稿 CSS `0 0.5px 1.5px`。AppKit 的 y 向上，投影在下方即负偏移。
+    /// 光晕的几何：设计稿 CSS `0 0.5px 1.5px`。AppKit 的 y 向上，投影在下方即负偏移。
+    public static let glowOffset = NSSize(width: 0, height: -0.5)
+    public static let glowBlurRadius: CGFloat = 1.5
+
+    /// 光晕颜色：浅色菜单栏上用白色描边把深字托起来，深色反之。
+    public static func glowColor(dark: Bool) -> NSColor {
+        (dark ? NSColor.black : NSColor.white).withAlphaComponent(dark ? 0.55 : 0.60)
+    }
+
     public static func glow(dark: Bool) -> NSShadow {
+        shadow(color: glowColor(dark: dark))
+    }
+
+    static func shadow(color: NSColor) -> NSShadow {
         let s = NSShadow()
-        s.shadowColor = (dark ? NSColor.black : NSColor.white)
-            .withAlphaComponent(dark ? 0.55 : 0.60)
-        s.shadowOffset = NSSize(width: 0, height: -0.5)
-        s.shadowBlurRadius = 1.5
+        s.shadowColor = color
+        s.shadowOffset = glowOffset
+        s.shadowBlurRadius = glowBlurRadius
         return s
     }
 
@@ -95,7 +106,7 @@ public enum StripTitle {
                     .foregroundColor: dynamic(ink),
                     .kern: StripStyle.tracking(tracking),
                 ]
-                if glow { attrs[.shadow] = currentGlow() }
+                if glow { attrs[.shadow] = dynamicGlow }
                 out.append(NSAttributedString(string: s, attributes: attrs))
             case .gap(let g):
                 // 没有可依附的前一段就丢掉（首位的间距）
@@ -116,11 +127,9 @@ public enum StripTitle {
         }
     }
 
-    /// NSShadow 的颜色不参与动态外观解析，所以按当前系统外观取一次。
-    /// 光晕只是防止浅色菜单栏上文字发糊的辅助，取错一次不影响可读性。
-    private static func currentGlow() -> NSShadow {
-        let dark = NSApp?.effectiveAppearance
-            .bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return StripStyle.glow(dark: dark)
-    }
+    /// 光晕的颜色同样包成动态色，深浅由系统在绘制时解析 —— 不必读 NSApp
+    /// （那是 MainActor 隔离的，从这个纯函数里读会破隔离）。
+    private static let dynamicGlow = StripStyle.shadow(color: NSColor(name: nil) { appearance in
+        StripStyle.glowColor(dark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+    })
 }
