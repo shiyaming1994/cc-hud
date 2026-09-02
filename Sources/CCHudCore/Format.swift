@@ -13,25 +13,6 @@ public enum Format {
         return "\(n)"
     }
 
-    /// 重置倒计时 "2h14m" / "3d2h"（components.jsx fmtCountdown）
-    public static func countdown(to date: Date, from now: Date = Date()) -> String {
-        let s = max(0, Int(date.timeIntervalSince(now)))
-        let d = s / 86400, h = (s % 86400) / 3600, m = (s % 3600) / 60
-        if d > 0 { return h > 0 ? "\(d)d\(h)h" : "\(d)d" }
-        if h > 0 { return m > 0 ? "\(h)h\(m)m" : "\(h)h" }
-        if m > 0 { return "\(m)m" }
-        return "\(s)s"
-    }
-
-    /// 时长 "2h14m" / "40m"（与 countdown 同格式，直接吃秒数）
-    public static func span(_ seconds: TimeInterval) -> String {
-        let s = max(0, Int(seconds))
-        let d = s / 86400, h = (s % 86400) / 3600, m = (s % 3600) / 60
-        if d > 0 { return h > 0 ? "\(d)d\(h)h" : "\(d)d" }
-        if h > 0 { return m > 0 ? "\(h)h\(m)m" : "\(h)h" }
-        return "\(m)m"
-    }
-
     /// 燃尽卡时长 "4h27m" / "4h" / "25m"（吃分钟；有小时则分钟补零，对齐设计稿 fmtDur）
     public static func burnDur(_ minutes: Double) -> String {
         let total = max(0, Int(minutes.rounded()))
