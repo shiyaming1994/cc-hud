@@ -175,7 +175,9 @@ final class MenuBarStripTests: XCTestCase {
     }
 
     func testFallbackBarUsesDefaultHeightWhenNoTopInset() {
-        // 外接屏实测：visibleFrame == frame（顶部不扣菜单栏）→ 推不出高度，用系统菜单栏厚度兜底
+        // 该屏压根没给菜单栏留位置（visibleFrame == frame）→ 推不出高度，用系统菜单栏厚度兜底。
+        // 注意别拿"外接屏"当这条的例子：非主屏的 visibleFrame 要进程初始化过 NSApplication
+        // 才返回真值，真 app 里外接屏是照常内缩 30 的（裸脚本量出来的 0 是假象）。
         let bar = MenuBarStrip.fallbackBar(
             screenFrame: CGRect(x: 783, y: 967, width: 1920, height: 1080),
             visibleFrame: CGRect(x: 783, y: 967, width: 1920, height: 1080),
@@ -184,30 +186,31 @@ final class MenuBarStripTests: XCTestCase {
     }
 
     // MARK: 菜单栏可见性（不可见时条子必须一并撤下）
+    //
+    // 判据 = 「该屏此刻有没有状态项」。2026-09-02 实测（自建窗口 toggleFullScreen 落到指定屏，
+    // 每次用 AX 的 AXFullScreen 确认落点，两块屏各两次采样）：
+    //
+    //   被占的屏      topInset   layer24   状态项(排自己)
+    //   左外接         30 不变      0          0
+    //   内置           29 不变      1          0
+    //   未被占的屏     不变         1         13
+    //
+    // 即：topInset 全屏时纹丝不动（不可用）；layer24 跨屏不一致（内置屏上全程在场，不可用）；
+    // 只有「状态项归零」稳定且按屏精确。这份数据 MenuBarProbe 本来就在算，零新增开销。
 
     func testHiddenWhenSystemAutoHideMenuBarIsOn() {
         // 自动隐藏时菜单栏只在鼠标顶边时滑出，独立窗口跟不了这个滑出动作 → 一律不显示，
         // 否则它会长期悬在用户内容之上
-        XCTAssertFalse(MenuBarStrip.menuBarVisible(autoHideEnabled: true, topInset: 29,
-                                                   baselineInset: 29))
+        XCTAssertFalse(MenuBarStrip.menuBarVisible(autoHideEnabled: true, hasStatusItems: true))
     }
 
-    func testHiddenWhenScreenStoppedReservingMenuBarSpace() {
-        // 主屏实测常态内缩 29；变成 0 说明被全屏 App 占了
-        XCTAssertFalse(MenuBarStrip.menuBarVisible(autoHideEnabled: false, topInset: 0,
-                                                   baselineInset: 29))
+    func testHiddenWhenFullScreenAppOccupiesTheScreen() {
+        // 全屏 App 占据该屏 → 该屏的状态项窗口整体离屏，枚举为空
+        XCTAssertFalse(MenuBarStrip.menuBarVisible(autoHideEnabled: false, hasStatusItems: false))
     }
 
-    func testVisibleWhenScreenStillReservesSpace() {
-        XCTAssertTrue(MenuBarStrip.menuBarVisible(autoHideEnabled: false, topInset: 29,
-                                                  baselineInset: 29))
-    }
-
-    func testVisibleOnScreensThatNeverReserveSpace() {
-        // 外接屏实测 visibleFrame == frame（有菜单栏也不内缩）→ 这条判据失效，按可见处理，
-        // 不能因为"内缩为 0"就把外接屏上的条子撤掉
-        XCTAssertTrue(MenuBarStrip.menuBarVisible(autoHideEnabled: false, topInset: 0,
-                                                  baselineInset: 0))
+    func testVisibleWhenScreenShowsStatusItems() {
+        XCTAssertTrue(MenuBarStrip.menuBarVisible(autoHideEnabled: false, hasStatusItems: true))
     }
 
     // MARK: 7D 重置展示判据（剩余 <20% 或 距重置 <24h）

@@ -22,9 +22,6 @@ final class MenuBarStripPanel: NSPanel {
     private var wantsVisible = false
     /// 视图侧的可用宽度预算（内容按它降级）；与窗口落位同源刷新
     let metrics: StripMetrics
-    /// 每屏"菜单栏预留高度"的历史最大值（屏 UUID → pt）：当前值掉到 0 即该屏被全屏 App 占了。
-    /// 主屏恒有菜单栏，基线用系统厚度打底，免得"启动时该屏已在全屏"学不到基线。
-    private var baselineInset: [String: CGFloat] = [:]
     private var settleTask: Task<Void, Never>?
     private var pollTimer: Timer?
 
@@ -141,14 +138,10 @@ final class MenuBarStripPanel: NSPanel {
         if abs(metrics.budget - b) > 0.5 { metrics.budget = b }
 
         // 菜单栏藏起来时（系统自动隐藏 / 该屏被全屏 App 占据）条子一并撤下，
-        // 否则它会长期悬在用户内容之上（见 MenuBarStrip.menuBarVisible）
-        let inset = screen.frame.maxY - screen.visibleFrame.maxY
-        let key = screen.displayUUID ?? "\(screen.frame)"
-        let seed: CGFloat = screen.frame.origin == .zero ? NSStatusBar.system.thickness : 0
-        let baseline = max(baselineInset[key] ?? seed, inset)
-        baselineInset[key] = baseline
+        // 否则它会长期悬在用户内容之上。全屏的判据是"该屏状态项整体离屏"，
+        // 而不是 visibleFrame 的顶部内缩（全屏时它纹丝不动）——见 MenuBarStrip.menuBarVisible。
         let visible = MenuBarStrip.menuBarVisible(autoHideEnabled: Self.autoHideMenuBar,
-                                                  topInset: inset, baselineInset: baseline)
+                                                  hasStatusItems: layout.statusItemsMinX != nil)
         guard visible, contentWidth > 1 else {
             if isVisible { orderOut(nil) }
             return

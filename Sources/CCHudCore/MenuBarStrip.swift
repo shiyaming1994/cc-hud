@@ -64,29 +64,38 @@ public enum MenuBarStrip {
     /// 没人挡着，菜单栏一藏它就长期悬在用户内容之上。
     /// - autoHideEnabled: 系统「自动隐藏菜单栏」(NSGlobalDomain `_HIHideMenuBar`)。开着时
     ///   菜单栏平时是藏的、只在鼠标顶边时滑出，我们这种独立窗口跟不了滑出动作，一律不显示。
-    /// - topInset / baselineInset: 该屏 `frame.maxY - visibleFrame.maxY` 的当前值与历史最大值。
-    ///   曾经预留过菜单栏空间的屏(主屏实测 29)一旦掉到 0，说明被全屏 App 占了。
-    ///   外接屏实测恒为 0（有菜单栏也不内缩），故 baseline 为 0 时本判据失效、按可见处理。
+    /// - hasStatusItems: 该屏此刻枚举得到状态项（排除自身 PID 后）。**全屏 App 占据某块屏时，
+    ///   该屏的状态项窗口会整体离屏**，这是目前唯一稳定且按屏精确的判据。
     ///
-    /// **全屏 App 占据该屏这一情形目前检测不了**，条子会照常悬在全屏画面顶端。
-    /// 2026-09-02 试过并证伪的四条路，别再重走：
-    ///   1. layer-24 的 Window Server「Menubar」窗口 —— 全屏前/中/后都在场且 on-screen；
-    ///   2. `frame.maxY - visibleFrame.maxY` —— 全屏时 Dock 那段让出来了，菜单栏那 29pt 照旧保留；
-    ///   3. 枚举 layer-0 中与屏等大的窗口 —— 跨进程枚举里根本看不到全屏窗口；
+    /// 2026-09-02 实测（自建窗口 toggleFullScreen 落到指定屏，每次用 AX 的 AXFullScreen 确认落点）：
+    ///
+    ///   被占的屏     topInset    layer24   状态项(排自己)
+    ///   左外接        30 不变       0           0
+    ///   内置          29 不变       1           0
+    ///   未被占的屏    不变          1          13
+    ///
+    /// 试过并证伪、别再重走的判据：
+    ///   1. `frame.maxY - visibleFrame.maxY` —— 全屏时纹丝不动。（另注：非主屏的 visibleFrame
+    ///      只有在进程初始化过 NSApplication 之后才返回真值，用裸脚本量会得到 0 的假象。）
+    ///   2. layer-24 的 Window Server「Menubar」窗口 —— 跨屏不一致：内置屏上全屏期间照旧在场。
+    ///   3. 枚举 layer-0 中与屏等大的窗口 —— 跨进程枚举里看不到全屏窗口。
     ///   4. 去掉 `.fullScreenAuxiliary` —— 无效，是 `.canJoinAllSpaces` 把窗口带进全屏空间的，
     ///      而去掉它条子就不跟随 Space 切换了，代价更大。
-    /// 唯一变化的信号是"铺满该屏的桌面层窗口"(壁纸 / 访达桌面)会消失，但它的 layer 是
-    /// INT32_MIN+23 这类魔数、数量还随「桌面显示图标」「台前调度」变，误判的代价是
-    /// 条子无缘无故消失，比压在全屏画面上更糟，故不采用。
-    public static func menuBarVisible(autoHideEnabled: Bool, topInset: CGFloat,
-                                      baselineInset: CGFloat) -> Bool {
+    ///   5. `NSApp.currentSystemPresentationOptions` 含 `.fullScreen` —— 可靠但**系统级不分屏**，
+    ///      别的屏全屏也会把本屏的条子误撤。
+    ///   6. AX 的 `AXFullScreen` —— 按屏精确、语义最准，但要遍历所有 app 做 IPC，5s 一次太贵。
+    ///
+    /// 枚举不到状态项也可能是探测失败或该屏真没有菜单栏（「显示器各自拥有独立空间」关闭时的副屏），
+    /// 两种情形撤下条子都是正确行为；真是瞬时抖动，下一次轮询（5s）就会自己回来。
+    public static func menuBarVisible(autoHideEnabled: Bool, hasStatusItems: Bool) -> Bool {
         if autoHideEnabled { return false }
-        return !(baselineInset > 1 && topInset <= 1)
+        return hasStatusItems
     }
 
-    /// 枚举不到 layer-24 菜单栏窗口时的兜底矩形：顶部内缩量推得出就用它（主屏会把菜单栏
-    /// 从 visibleFrame 里扣掉），推不出就用系统菜单栏厚度（实测外接屏 visibleFrame == frame，
-    /// 顶部什么都不扣）。宁可条子落在一个估出来的位置，也不能整条消失。
+    /// 枚举不到 layer-24 菜单栏窗口时的兜底矩形：顶部内缩量推得出就用它，推不出（该屏根本
+    /// 没给菜单栏留位置）才退回系统菜单栏厚度。宁可条子落在一个估出来的位置，也不能整条消失。
+    /// 注意：**非主屏的 visibleFrame 只有在进程初始化过 NSApplication 之后才返回真值**，
+    /// 裸脚本量出来的"外接屏内缩恒为 0"是假象；真 app 里每块屏都会扣掉自己的菜单栏高度。
     public static func fallbackBar(screenFrame: CGRect, visibleFrame: CGRect,
                                    defaultHeight: CGFloat) -> CGRect {
         let inset = screenFrame.maxY - visibleFrame.maxY
