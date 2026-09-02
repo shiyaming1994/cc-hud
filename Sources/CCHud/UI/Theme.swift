@@ -63,15 +63,6 @@ enum Theme {
     static let quotaTrack    = Color.white.opacity(0.06)    // 进度条轨道
     static let quotaHairline = Color.white.opacity(0.06)    // hero 非告警描边
 
-    /// 菜单栏额度条的档位色：上面那套是为暗玻璃浮窗调的，放到**浅色**菜单栏上
-    /// 对比度只剩 ~2:1，12pt 数字直接发虚；浅色外观下换一套压深的（≈4.5:1 起）。
-    static func quotaColorOnMenuBar(remain: Double, dark: Bool) -> Color {
-        if dark { return quotaColor(remain: remain) }
-        if remain > 50 { return rgb(47, 92, 66) }      // 压深 sage
-        if remain >= 20 { return rgb(122, 88, 24) }    // 压深 amber
-        return rgb(190, 34, 26)                        // 压深 alarm
-    }
-
     /// 配额剩余配色（standalone level()）：>50 sage，20–50 amber，<20 alarm
     static func quotaColor(remain: Double) -> Color {
         if remain > 50 { return quotaSage }

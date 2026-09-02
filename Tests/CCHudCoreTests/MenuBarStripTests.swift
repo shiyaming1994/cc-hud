@@ -68,6 +68,14 @@ final class MenuBarStripTests: XCTestCase {
         XCTAssertEqual(f, CGRect(x: 828, y: 938, width: 112, height: 29))
     }
 
+    func testDefaultGapAlignsToStatusItemWindowEdge() {
+        // 默认 gap = 0：右缘与状态项窗口左缘对齐。设计稿的"到图标 12pt"由图标自身的
+        // 内边距(9.5–12.5pt)加末字边距(2–3.5pt)自然凑出，实测 11.5–16pt。
+        let f = MenuBarStrip.frame(bar: rightBar, statusItemsMinX: 2157, notch: nil,
+                                   contentWidth: 200)
+        XCTAssertEqual(f.maxX, 2157)
+    }
+
     // MARK: 可用宽度预算与降级选档
 
     func testBudgetIsNotchRightEdgeToStatusItems() {

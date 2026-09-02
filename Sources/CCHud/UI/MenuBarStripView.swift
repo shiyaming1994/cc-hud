@@ -10,18 +10,12 @@ final class StripMetrics: ObservableObject {
     @Published var budget: CGFloat = .greatestFiniteMagnitude
 }
 
-/// 菜单栏额度条：菜单栏里的一行字 —— `5H 62% 14:30 · 7D 41% · 1.2M`。
+/// 菜单栏额度条 —— 完全照《菜单栏额度条 · 齐平》设计稿实现，数值不要自行发挥。
 ///
-/// 整行用 Text 拼接而非 HStack：8pt 小标签与 12pt 数值必须共基线才像"一行字"，
-/// Text 拼接天然共基线，HStack 还得靠 alignment 去凑。
-///
-/// **降级阶梯**：内置刘海屏实测只有 112pt 可用（刘海右缘 828 ↔ 状态项左缘 952），
-/// 整条要 192pt，放不下。所以按预算从"最全"往"最简"退，宁可少显示几段，也不越过刘海
-/// 去压 App 菜单（v1.4.0 首装时就是那样撞的）。各档宽度用 NSFont 度量直接算，
-/// 与渲染共用同一份 run（`Font(nsFont)`），不靠渲染反馈循环。
-///
-/// 配色跟随系统外观，不跟随菜单栏的"失焦变灰"——那是系统给自己的菜单项加的，
-/// 我们是独立窗口，画多亮就多亮，正好要的就是这个。
+/// 设计要点：**全行只有一个字号 12pt**（SF Pro · 等宽数字），百分比、百分号、标签、时刻、
+/// token 一律等高；层级只交给字重（600/500/400，告警 700）与明度（L1/L2/L3）；
+/// 分组只用空间（组内 4/1.5/5pt、组间 13pt），一个分隔符都不用；>50% 全线无彩色，
+/// 色彩是留给紧张态的预算。光晕只挂在 5H 数值上，其余不加，避免整行发糊。
 struct MenuBarStripView: View {
     let store: StateStore
     @ObservedObject var metrics: StripMetrics
@@ -29,98 +23,119 @@ struct MenuBarStripView: View {
     var onWidthChange: (CGFloat) -> Void = { _ in }
 
     @State private var wakeTick = 0
-    /// 菜单栏明暗随系统外观走，档位色要跟着换深浅（见 Theme.quotaColorOnMenuBar）
     @Environment(\.colorScheme) private var scheme
 
     private var account: AccountUsage { store.account }
     /// 扫描失败 / 未启动时 DailyTokenScanner 恒返回 0（不是 nil），所以判 >0 才算"有数据"
     private var todayTokens: Int { store.todayTokens ?? 0 }
+    private var dark: Bool { scheme == .dark }
 
     var body: some View {
         TimelineView(.periodic(from: QuotaClock.minuteAnchor, by: 60)) { ctx in
-            let runs = chosenRuns(now: ctx.date)
+            let els = chosen(now: ctx.date)
             ZStack(alignment: .trailing) {
                 Color.clear
-                if !runs.isEmpty {
-                    text(runs)
-                        .lineLimit(1)
+                if !els.isEmpty {
+                    row(els)
                         .fixedSize()
-                        .shadow(color: halo, radius: 1)
+                        // 整行按数值的 cap-height 中心对齐条高中心（不是行盒中心），
+                        // 条高在 29–33pt 之间变化时视觉位置不跳
+                        .offset(y: Spec.capCenterOffset)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.trailing, Self.trailingInset)
-            .onAppear { report(runs) }
-            .onChange(of: reportedWidth(runs)) { _, w in onWidthChange(w) }
+            .onAppear { onWidthChange(reported(els)) }
+            .onChange(of: reported(els)) { _, w in onWidthChange(w) }
         }
         .id(wakeTick)
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didWakeNotification)) { _ in wakeTick &+= 1 }
     }
 
-    private func reportedWidth(_ runs: [Run]) -> CGFloat {
-        runs.isEmpty ? 0 : width(runs) + Self.trailingInset
-    }
-    private func report(_ runs: [Run]) { onWidthChange(reportedWidth(runs)) }
+    private func reported(_ els: [Element]) -> CGFloat { els.isEmpty ? 0 : Spec.width(els) }
 
-    /// 文字右缘到窗口右缘的留白：窗口右缘已经贴在状态项左缘 -gap 上，这里只留一点视觉呼吸
-    private static let trailingInset: CGFloat = 2
+    // MARK: 降级阶梯（设计稿 03）
 
-    // MARK: 降级选档
-
-    /// 由富到简的各档里挑第一个塞得下的。三源全无 / 连最简都放不下 → 空（整条不上屏）。
-    private func chosenRuns(now: Date) -> [Run] {
+    /// 由富到简选第一个塞得下的。三源全无 / 连最简都放不下 → 空（整条不上屏）。
+    private func chosen(now: Date) -> [Element] {
         let ladder = ladder(now: now)
         guard !ladder.isEmpty,
-              let i = MenuBarStrip.fittingVariant(widths: ladder.map(width),
-                                                  budget: metrics.budget - Self.trailingInset)
+              let i = MenuBarStrip.fittingVariant(widths: ladder.map(Spec.width),
+                                                  budget: metrics.budget)
         else { return [] }
         return ladder[i]
     }
 
-    /// 阶梯（由富到简）：全档 → 去 token → 去 5H 重置时刻 → 只留紧张的那段 → 只留 5H 剩余。
-    /// "低额度窗口的重置倒计时"排在 5H 重置时刻与 token 之前 —— 紧张的时候那个数最该看见。
-    private func ladder(now: Date) -> [[Run]] {
+    /// 1 全档 → 2 去 token → 3 去 5H 时刻 → 4 只留最紧的一段（带时间）→ 5 最简（该段去时间）
+    private func ladder(now: Date) -> [[Element]] {
         let five = project(account.fiveHourUsedPct, account.fiveHourResetsAt,
                            AccountUsage.fiveHourPeriod, now)
         let seven = project(account.sevenDayUsedPct, account.sevenDayResetsAt,
                             AccountUsage.sevenDayPeriod, now)
+        // 7D 倒计时只在剩余 <20% 或距重置 <24h 时出现
         let sevenUrgent = seven.map {
             MenuBarStrip.showsSevenDayReset(remainPct: $0.remain, resetsAt: $0.resetsAt, now: now)
         } ?? false
 
-        let variants: [(fiveReset: Bool, sevenGroup: Bool, token: Bool)] = [
-            (true,  true,        true),
-            (true,  true,        false),
-            (false, true,        false),
-            (false, sevenUrgent, false),
-            (false, false,       false),
-        ]
-        var seen = Set<String>()
-        return variants.compactMap { v -> [Run]? in
-            var groups: [[Run]] = []
-            if let five {
-                var g = label("5H") + value("\(Int(five.remain))%", level: five.remain)
-                if v.fiveReset, let r = five.resetsAt {
-                    g += gap + value(Format.resetTimeShort(r, now: now), color: neutral)
-                }
-                groups.append(g)
-            }
-            if v.sevenGroup, let seven {
-                var g = label("7D") + value("\(Int(seven.remain))%", level: seven.remain)
-                if sevenUrgent, let r = seven.resetsAt {
-                    g += gap + value(Format.countdownDH(to: r, from: now), color: neutral)
-                }
-                groups.append(g)
-            }
-            if v.token, todayTokens > 0 {
-                groups.append(value(Format.tokens(todayTokens), color: neutral))
-            }
-            guard !groups.isEmpty else { return nil }
-            let runs = groups.dropFirst().reduce(groups[0]) { $0 + separator + $1 }
-            // 缺数据时相邻档会退化成同一串（如无 7D 时"去 7D"那档），去重免得白测一遍
-            return seen.insert(runs.map(\.text).joined()).inserted ? runs : nil
+        func fiveGroup(time: Bool) -> [Element] {
+            guard let five else { return [] }
+            return group(label: "5H", remain: five.remain, baseWeight: Spec.fiveValue,
+                         baseColor: Spec.l1(dark), glow: true,
+                         tail: time ? five.resetsAt.map { Format.resetTimeShort($0, now: now) } : nil)
         }
+        func sevenGroup(time: Bool) -> [Element] {
+            guard let seven else { return [] }
+            let tail = (time && sevenUrgent) ? seven.resetsAt.map { Format.countdownDH(to: $0, from: now) } : nil
+            return group(label: "7D", remain: seven.remain, baseWeight: Spec.sevenValue,
+                         baseColor: Spec.l2(dark), glow: false, tail: tail)
+        }
+        let token: [Element] = todayTokens > 0
+            ? [.text(Format.tokens(todayTokens), Spec.regular, Spec.tokenTracking, Spec.l3(dark), false)]
+            : []
+        // 第 4/5 档保留"当前最紧的那一段"：宽松时是 5H，7D 更低时换成 7D
+        let sevenIsTighter = (seven?.remain ?? .infinity) < (five?.remain ?? .infinity)
+        func tightest(time: Bool) -> [Element] {
+            sevenIsTighter ? sevenGroup(time: time) : fiveGroup(time: time)
+        }
+
+        var seen = Set<String>()
+        return [
+            join([fiveGroup(time: true), sevenGroup(time: true), token]),
+            join([fiveGroup(time: true), sevenGroup(time: true)]),
+            join([fiveGroup(time: false), sevenGroup(time: true)]),
+            tightest(time: true),
+            tightest(time: false),
+        ].compactMap { els in
+            guard !els.isEmpty else { return nil }
+            // 缺数据时相邻档会退化成同一串，去重免得白测一遍
+            return seen.insert(Spec.key(els)).inserted ? els : nil
+        }
+    }
+
+    /// 一组 = 标签 4pt 数值 1.5pt 百分号 [5pt 时刻]。
+    /// 剩余 20–50 / <20 时该段的数值与百分号一起换成 Bold 700 + 档位色（字号不变）。
+    private func group(label: String, remain: Double, baseWeight: NSFont.Weight,
+                       baseColor: Color, glow: Bool, tail: String?) -> [Element] {
+        let alert = Spec.alert(remain: remain, dark: dark)
+        let weight = alert == nil ? baseWeight : Spec.alertValue
+        var els: [Element] = [
+            .text(label, Spec.labelWeight, Spec.labelTracking, Spec.l3(dark), false),
+            .gap(Spec.labelToValue),
+            .text("\(Int(remain))", weight, 0, alert ?? baseColor, glow),
+            .gap(Spec.valueToPercent),
+            .text("%", weight, 0, alert ?? Spec.l3(dark), false),
+        ]
+        if let tail {
+            els.append(.gap(Spec.percentToTime))
+            els.append(.text(tail, Spec.regular, Spec.timeTracking, Spec.l2(dark), false))
+        }
+        return els
+    }
+
+    private func join(_ groups: [[Element]]) -> [Element] {
+        let live = groups.filter { !$0.isEmpty }
+        guard let first = live.first else { return [] }
+        return live.dropFirst().reduce(first) { $0 + [.gap(Spec.groupGap)] + $1 }
     }
 
     private func project(_ used: Double?, _ resetsAt: Date?, _ period: TimeInterval, _ now: Date)
@@ -130,53 +145,103 @@ struct MenuBarStripView: View {
         return (max(0, min(100, 100 - u)), p.resetsAt)
     }
 
-    // MARK: run 模型（度量与渲染共用同一份，保证算出来的宽度就是画出来的宽度）
+    // MARK: 渲染
 
-    private struct Run {
-        let text: String
-        let font: NSFont
-        let color: Color
-        var kern: CGFloat = 0
-    }
-
-    private func label(_ s: String) -> [Run] {
-        [Run(text: s, font: .monospacedSystemFont(ofSize: 8, weight: .bold),
-             color: labelTint, kern: 0.6)] + gap
-    }
-    private func value(_ s: String, color: Color) -> [Run] {
-        [Run(text: s, font: .monospacedDigitSystemFont(ofSize: 12, weight: .medium), color: color)]
-    }
-    private func value(_ s: String, level remain: Double) -> [Run] {
-        value(s, color: Theme.quotaColorOnMenuBar(remain: remain, dark: scheme == .dark))
-    }
-    private var gap: [Run] {
-        [Run(text: " ", font: .systemFont(ofSize: 12), color: .clear)]
-    }
-    private var separator: [Run] {
-        [Run(text: "  ·  ", font: .systemFont(ofSize: 12), color: separatorTint)]
-    }
-
-    private func width(_ runs: [Run]) -> CGFloat {
-        let s = NSMutableAttributedString()
-        for r in runs {
-            s.append(NSAttributedString(string: r.text,
-                                        attributes: [.font: r.font, .kern: r.kern]))
+    private func row(_ els: [Element]) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(els.enumerated()), id: \.offset) { _, el in
+                switch el {
+                case .gap(let w):
+                    Color.clear.frame(width: w, height: 1)
+                case .text(let s, let weight, let kern, let color, let glow):
+                    let t = Text(s)
+                        .font(Font(Spec.font(weight)))
+                        .tracking(kern)
+                        .foregroundColor(color)
+                    if glow {
+                        t.shadow(color: Spec.glow(dark), radius: Spec.glowRadius, y: Spec.glowY)
+                    } else {
+                        t
+                    }
+                }
+            }
         }
-        return ceil(s.size().width)
     }
 
-    private func text(_ runs: [Run]) -> Text {
-        runs.dropFirst().reduce(swiftUIText(runs[0])) { $0 + swiftUIText($1) }
+    enum Element {
+        case gap(CGFloat)
+        case text(String, NSFont.Weight, CGFloat, Color, Bool)   // 文本, 字重, 字距, 色, 光晕
     }
-    private func swiftUIText(_ r: Run) -> Text {
-        Text(r.text).font(Font(r.font)).tracking(r.kern).foregroundColor(r.color)
+}
+
+/// 设计稿《菜单栏额度条 · 齐平》的全部数值。改样式只改这里。
+private enum Spec {
+    static let size: CGFloat = 12
+    static func font(_ w: NSFont.Weight) -> NSFont {
+        .monospacedDigitSystemFont(ofSize: size, weight: w)   // SF Pro · tabular-nums
     }
 
-    // MARK: 配色
+    // 字重：标签 500 / 5H 数值 600 / 7D 数值 400 / 告警 700
+    static let labelWeight = NSFont.Weight.medium
+    static let fiveValue = NSFont.Weight.semibold
+    static let sevenValue = NSFont.Weight.regular
+    static let regular = NSFont.Weight.regular
+    static let alertValue = NSFont.Weight.bold
 
-    private var neutral: Color { Color(nsColor: .labelColor).opacity(0.92) }
-    private var labelTint: Color { Color(nsColor: .secondaryLabelColor) }
-    private var separatorTint: Color { Color(nsColor: .labelColor).opacity(0.28) }
-    /// 与文字反向的光晕：系统菜单栏文字也这么压壁纸，浅色壁纸下不至于糊掉
-    private var halo: Color { Color(nsColor: .textBackgroundColor).opacity(0.45) }
+    // 字距
+    static let labelTracking: CGFloat = 0.4
+    static let timeTracking: CGFloat = 0.1
+    static let tokenTracking: CGFloat = 0.2
+
+    // 间距
+    static let labelToValue: CGFloat = 4
+    static let valueToPercent: CGFloat = 1.5
+    static let percentToTime: CGFloat = 5
+    static let groupGap: CGFloat = 13
+
+    // 明度三级（浅 / 深）
+    static func l1(_ dark: Bool) -> Color { dark ? hex(0xFFFFFF) : hex(0x1A1A1C) }
+    static func l2(_ dark: Bool) -> Color { dark ? hex(0xC0C0C8) : hex(0x4F4F57) }
+    static func l3(_ dark: Bool) -> Color { dark ? hex(0x8E8E97) : hex(0x6B6B72) }
+    /// 20–50 注意 / <20 告警；>50 返回 nil（全线无彩色）
+    static func alert(remain: Double, dark: Bool) -> Color? {
+        if remain >= AccountUsage.lowQuotaRemainPct && remain <= 50 {
+            return dark ? hex(0xFFB340) : hex(0x8A5300)
+        }
+        if remain < AccountUsage.lowQuotaRemainPct { return dark ? hex(0xFF6257) : hex(0xC22A1F) }
+        return nil
+    }
+
+    /// 光晕：CSS `0 0.5px 1.5px`（CSS 模糊半径约为 SwiftUI 的两倍）
+    static func glow(_ dark: Bool) -> Color {
+        dark ? Color.black.opacity(0.55) : Color.white.opacity(0.60)
+    }
+    static let glowRadius: CGFloat = 0.75
+    static let glowY: CGFloat = 0.5
+
+    /// 行盒居中 → cap-height 居中的修正量（负 = 上移）。由字体度量推导，不写死。
+    static let capCenterOffset: CGFloat = {
+        let f = font(.regular)
+        return (f.capHeight - f.ascender - f.descender) / 2
+    }()
+
+    static func width(_ els: [MenuBarStripView.Element]) -> CGFloat {
+        els.reduce(0) { acc, el in
+            switch el {
+            case .gap(let w): return acc + w
+            case .text(let s, let weight, let kern, _, _):
+                return acc + NSAttributedString(
+                    string: s, attributes: [.font: font(weight), .kern: kern]).size().width
+            }
+        }
+    }
+
+    static func key(_ els: [MenuBarStripView.Element]) -> String {
+        els.map { if case .text(let s, _, _, _, _) = $0 { return s } else { return "|" } }.joined()
+    }
+
+    private static func hex(_ v: UInt32) -> Color {
+        Color(red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255,
+              blue: Double(v & 0xFF) / 255)
+    }
 }

@@ -5,6 +5,12 @@ import Foundation
 /// 纯函数、不碰 AppKit（选屏与窗口枚举留给 app 层）——多屏 / 负坐标 / 刘海避让 / 边界夹取
 /// 这些分支不单测必出事，与 NotchGeometry 同样的可测性考量。
 public enum MenuBarStrip {
+    /// 条子右缘相对状态项**窗口**左缘的偏移（负 = 越过窗口边界）。
+    /// 设计稿要的是"到图标 12pt"，但我们只能量到窗口边界：实测该边界到图标墨迹还有 ~12.5pt
+    /// 内边距，我们自己末字的右侧边距 ~3.5pt，故需越过 4pt 才得到 12pt 的视觉间距——
+    /// 这 4pt 落在图标自己的空白内边距里，不会压到任何图标。
+    public static let iconGap: CGFloat = 0
+
     /// CGWindowList 坐标（左上原点、y 向下、原点在主屏左上）→ NSScreen 坐标（左下原点、y 向上）。
     /// 主屏之上的显示器 CG y 为负，转换后 NS y 大于主屏高；x 两系一致、不翻转。
     public static func nsRect(fromCG r: CGRect, primaryHeight: CGFloat) -> CGRect {
@@ -16,7 +22,7 @@ public enum MenuBarStrip {
     /// 内容按这个预算降级（见 fittingVariant），放不下就少显示几段，而不是推到刘海左侧去压
     /// App 菜单 —— 实测内置屏刘海左侧只有 ~108pt 且左界(App 菜单右缘)不可测，推过去必撞。
     public static func budget(bar: CGRect, statusItemsMinX: CGFloat?, notch: CGRect?,
-                              gap: CGFloat = 12) -> CGFloat {
+                              gap: CGFloat = iconGap) -> CGFloat {
         let left = max(bar.minX, notch?.maxX ?? bar.minX)
         let right = (statusItemsMinX ?? bar.maxX) - gap
         return max(0, right - left)
@@ -31,7 +37,7 @@ public enum MenuBarStrip {
     /// - 拿不到状态项左缘（枚举失败 / 该屏无状态项）→ 居中于可用区，不硬贴屏右缘压住时钟。
     /// - 左界恒为刘海右缘：宁可少显示几段（调用方已按 budget 降级），也不越过刘海去压 App 菜单。
     public static func frame(bar: CGRect, statusItemsMinX: CGFloat?, notch: CGRect?,
-                             contentWidth: CGFloat, gap: CGFloat = 12) -> CGRect {
+                             contentWidth: CGFloat, gap: CGFloat = iconGap) -> CGRect {
         let left = max(bar.minX, notch?.maxX ?? bar.minX)
         let right = (statusItemsMinX ?? bar.maxX) - gap
         let w = min(contentWidth, max(0, right - left))
