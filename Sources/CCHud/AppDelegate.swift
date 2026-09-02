@@ -216,9 +216,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 额度真的变了才重画标题（值没变不触发，见 StateStore.onAccountChanged）
         self.store.onAccountChanged = { [weak self] in self?.statusItem?.refreshStripTitle() }
         // 分钟心跳：重置时刻与倒计时随时间走。今日 token 的变化也搭这班车 —— 它变得慢，
-        // 等一分钟无妨。对齐整分钟 :00 起跳，与额度卡片同一个锚点。
+        // 等一分钟无妨。锚点直接用 QuotaClock.minuteAnchor（额度卡片的 TimelineView 用的
+        // 同一个），这样锚点将来若调整，两处会一起动，不会错开一分钟。
+        let anchor = QuotaClock.minuteAnchor.timeIntervalSinceReferenceDate
+        let sinceAnchor = Date().timeIntervalSinceReferenceDate - anchor
         let nextMinute = Date(timeIntervalSinceReferenceDate:
-            (Date().timeIntervalSinceReferenceDate / 60).rounded(.up) * 60)
+            anchor + (sinceAnchor / 60).rounded(.up) * 60)
         let heartbeat = Timer(fire: nextMinute, interval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.statusItem?.refreshStripTitle() }
         }
