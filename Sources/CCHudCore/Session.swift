@@ -73,6 +73,23 @@ public struct AccountUsage: Sendable, Equatable {
     public var sevenDayResetsAt: Date?
     public init() {}
 
+    /// 存档表示（纯字典，便于落 UserDefaults 与单测）；缺的窗口就不写键。
+    public var archive: [String: Double] {
+        var d: [String: Double] = [:]
+        if let v = fiveHourUsedPct { d["5hUsed"] = v }
+        if let v = fiveHourResetsAt { d["5hReset"] = v.timeIntervalSince1970 }
+        if let v = sevenDayUsedPct { d["7dUsed"] = v }
+        if let v = sevenDayResetsAt { d["7dReset"] = v.timeIntervalSince1970 }
+        return d
+    }
+
+    public init(archive d: [String: Double]) {
+        fiveHourUsedPct = d["5hUsed"]
+        fiveHourResetsAt = d["5hReset"].map { Date(timeIntervalSince1970: $0) }
+        sevenDayUsedPct = d["7dUsed"]
+        sevenDayResetsAt = d["7dReset"].map { Date(timeIntervalSince1970: $0) }
+    }
+
     public static let fiveHourPeriod: TimeInterval = 5 * 3600
     public static let sevenDayPeriod: TimeInterval = 7 * 24 * 3600
 

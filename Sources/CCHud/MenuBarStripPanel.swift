@@ -23,9 +23,10 @@ final class MenuBarStripPanel: NSPanel {
     private var settleTask: Task<Void, Never>?
     private var pollTimer: Timer?
 
-    /// 兜底轮询间隔。状态项增减（输入法切换、时间机器图标冒出来…）没有公开通知，
-    /// 只能兜底轮询；真正的高频变化都走事件驱动（见 init 里的观察者）。
-    private static let pollInterval: TimeInterval = 2
+    /// 兜底轮询间隔。状态项增减（输入法切换、时间机器图标冒出来…）没有公开通知，只能轮询兜底。
+    /// 单次探测实测 1.06ms，5s 一次 ≈ 0.02% 单核；高频变化都走事件驱动（见 init 里的观察者），
+    /// 所以这条只决定"别的 App 新增状态图标后多久躲开"，最坏 5s。
+    private static let pollInterval: TimeInterval = 5
 
     init(rootView: some View, metrics: StripMetrics) {
         self.metrics = metrics

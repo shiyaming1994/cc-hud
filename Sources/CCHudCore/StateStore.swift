@@ -36,7 +36,19 @@ public final class StateStore {
     /// 不送达（实测 2.1.173），statusline 流对所有已开会话都在动，所以骤降是更可靠的完成信号。
     public static let compactCtxDropPoints: Double = 15
 
-    public init() {}
+    /// 额度存档（跨重启保活）。同一窗口内用量只增不减是 absorbWindow 的不变量，
+    /// 但重启会把内存里的高水位清空——实测就是这样让 7d 从"已用 15%"退回"已用 1%"的。
+    /// 存档只放额度四个数，会话列表不持久化（进程对账会重建）。
+    public static let accountKey = "hud.account.v1"
+    /// nil = 不持久化（单测默认，避免同进程里用例之间串档）；app 在组装根显式传 .standard
+    @ObservationIgnored private let defaults: UserDefaults?
+
+    public init(defaults: UserDefaults? = nil) {
+        self.defaults = defaults
+        if let d = defaults?.dictionary(forKey: Self.accountKey) as? [String: Double] {
+            account = AccountUsage(archive: d)
+        }
+    }
 
     public func apply(_ env: Envelope, at now: Date = Date()) {
         lastEventReceivedAt = now
@@ -317,6 +329,7 @@ public final class StateStore {
         Self.absorbWindow(rl.fiveHour, pct: &acc.fiveHourUsedPct, resetAt: &acc.fiveHourResetsAt)
         Self.absorbWindow(rl.sevenDay, pct: &acc.sevenDayUsedPct, resetAt: &acc.sevenDayResetsAt)
         account = acc
+        defaults?.set(acc.archive, forKey: Self.accountKey)
         checkBurnout(now)
     }
 

@@ -14,7 +14,8 @@ final class WeakStripRef {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let store = StateStore()
+    /// 额度存档跨重启保活（同窗口内用量只增不减，重启不该把高水位丢掉）
+    let store = StateStore(defaults: .standard)
     let animator = CompletionAnimator()
     let questionPrompt = QuestionPromptController()
     let burnoutAlert = BurnoutAlertController()
