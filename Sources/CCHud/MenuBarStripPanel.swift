@@ -59,6 +59,10 @@ final class MenuBarStripPanel: NSPanel {
         // App 切换会带动状态项变化（输入法指示器、随前台应用出没的图标）→ 立即重测
         wnc.addObserver(self, selector: #selector(refreshNow),
                         name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        // Space 切换（进出全屏、换桌面）：菜单栏在新空间里可能压根不存在，必须立即重判。
+        // 实测该通知在转场开始约 0.8s 后才到（此时该屏状态项已经归零），比兜底轮询快得多。
+        wnc.addObserver(self, selector: #selector(refreshNow),
+                        name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
     }
 
     override var canBecomeKey: Bool { false }
@@ -99,7 +103,7 @@ final class MenuBarStripPanel: NSPanel {
             refresh()
         } else {
             stopPolling()
-            orderOut(nil)
+            hideStrip()
         }
     }
 
@@ -117,14 +121,35 @@ final class MenuBarStripPanel: NSPanel {
         refresh(animated: false)
     }
 
+    /// 撤下 / 上屏都先动 `alphaValue`，不再依赖 `orderOut` 的时效。
+    ///
+    /// 我们不是菜单栏的正式居民：菜单栏底板是 Window Server 的 layer-24 窗口、状态项是
+    /// 「控制中心」进程的 layer-25 窗口，进全屏时它们作为 Space 转场的一部分被原子撤掉；
+    /// 条子只是我们自己进程的一个同级独立窗口，没人负责撤它，只能自己发现邻居没了再撤。
+    /// 而**窗口排序在转场期间被 Space 机制锁住**——2026-09-02 实测 `orderOut` 要迟 1.15s
+    /// 才生效，条子会在全屏画面上回闪一下；`alphaValue` 是窗口自身的合成属性，同一时刻
+    /// 设 0 立即生效（`kCGWindowAlpha` 当场读到 0）。orderOut 照旧调用，只是不指望它及时。
+    private func hideStrip() {
+        alphaValue = 0
+        if isVisible { orderOut(nil) }
+    }
+
+    private func showStrip() {
+        alphaValue = 1
+        if !isVisible { orderFrontRegardless() }
+    }
+
     @objc private func refreshNow() { refresh() }
 
     private func refresh(animated: Bool = true) {
         guard wantsVisible, let screen = targetScreen() else {
-            if isVisible { orderOut(nil) }
+            hideStrip()
             return
         }
         let layout = MenuBarProbe.layout(for: screen)
+        DebugLog.log("strip: probe minX=\(layout.statusItemsMinX.map { "\($0)" } ?? "nil") " +
+                     "bar=\(layout.bar.minX)…\(layout.bar.maxX) w=\(contentWidth) " +
+                     "frame=\(frame.minX)…\(frame.maxX) alpha=\(alphaValue) vis=\(isVisible)")
         let notch = NotchGeometry.notchRect(screenFrame: screen.frame,
                                             safeAreaTop: screen.safeAreaInsets.top,
                                             auxLeft: screen.auxiliaryTopLeftArea,
@@ -143,13 +168,14 @@ final class MenuBarStripPanel: NSPanel {
         let visible = MenuBarStrip.menuBarVisible(autoHideEnabled: Self.autoHideMenuBar,
                                                   hasStatusItems: layout.statusItemsMinX != nil)
         guard visible, contentWidth > 1 else {
-            if isVisible { orderOut(nil) }
+            DebugLog.log("strip: 撤下 (visible=\(visible) w=\(contentWidth))")
+            hideStrip()
             return
         }
         let f = MenuBarStrip.frame(bar: layout.bar, statusItemsMinX: layout.statusItemsMinX,
                                    notch: notch, contentWidth: contentWidth)
         place(f, animated: animated)
-        if !isVisible { orderFrontRegardless() }
+        showStrip()
     }
 
     /// 纯平移且幅度不大（状态项增减把条子挤了一格）→ 0.16s 缓动跟进，不硬跳；
