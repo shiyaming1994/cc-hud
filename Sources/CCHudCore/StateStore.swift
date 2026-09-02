@@ -323,11 +323,17 @@ public final class StateStore {
         absorbAccount(env, at: now)
     }
 
+    /// 等待第二条确认的"回落读数"（见 absorbWindow）。不持久化：重启后本就该重新确认。
+    @ObservationIgnored private var fivePendingLow: Double?
+    @ObservationIgnored private var sevenPendingLow: Double?
+
     private func absorbAccount(_ env: Envelope, at now: Date) {
         guard let rl = env.payload.rateLimits else { return }
         var acc = account   // @Observable 计算属性不能多个 inout 子属性同传
-        Self.absorbWindow(rl.fiveHour, pct: &acc.fiveHourUsedPct, resetAt: &acc.fiveHourResetsAt)
-        Self.absorbWindow(rl.sevenDay, pct: &acc.sevenDayUsedPct, resetAt: &acc.sevenDayResetsAt)
+        Self.absorbWindow(rl.fiveHour, pct: &acc.fiveHourUsedPct, resetAt: &acc.fiveHourResetsAt,
+                          pendingLow: &fivePendingLow)
+        Self.absorbWindow(rl.sevenDay, pct: &acc.sevenDayUsedPct, resetAt: &acc.sevenDayResetsAt,
+                          pendingLow: &sevenPendingLow)
         account = acc
         defaults?.set(acc.archive, forKey: Self.accountKey)
         checkBurnout(now)
@@ -353,7 +359,8 @@ public final class StateStore {
     /// 旧数字——直接覆盖会让显示在新旧值之间来回跳。同一窗口内用量只增不减，
     /// 取 max 即"最新鲜的那份"；重置时间明显前移（>jitter）才是窗口滚动、接受回落；
     /// 明显早于当前窗口（<-jitter）的迟到快照整条忽略。
-    private static func absorbWindow(_ win: RateWindow?, pct: inout Double?, resetAt: inout Date?) {
+    private static func absorbWindow(_ win: RateWindow?, pct: inout Double?, resetAt: inout Date?,
+                                     pendingLow: inout Double?) {
         guard let win else { return }
         if let r = win.resetsAt {
             let incoming = Date(timeIntervalSince1970: r)
@@ -363,12 +370,33 @@ public final class StateStore {
                 if delta > Self.windowJitter {
                     resetAt = incoming
                     if let p = win.usedPercentage { pct = p }
+                    pendingLow = nil        // 换窗口了，旧窗口的待确认读数作废
                     return
                 }
             } else {
                 resetAt = incoming
             }
         }
-        if let p = win.usedPercentage { pct = max(pct ?? 0, p) }
+        guard let p = win.usedPercentage else { return }
+        guard let cur = pct else { pct = p; return }
+        // 同一窗口内明显回落有两种成因，只能靠"重复出现"区分：
+        //   乱序 / 迟到的旧快照 —— 不会连着来第二条
+        //   服务端把额度清了（2026-09-02 发 Fable 5.1 当天就这样：resets_at 没动、用量归零）
+        //     —— 会一直重复
+        // 所以连续两次报到同一水平才认账；抖动量级(≤dropTolerance)的回落照旧取 max。
+        if p < cur - Self.dropTolerance {
+            if let pending = pendingLow, abs(pending - p) <= Self.dropTolerance {
+                pct = p
+                pendingLow = nil
+            } else {
+                pendingLow = p
+            }
+            return
+        }
+        pendingLow = nil
+        pct = max(cur, p)
     }
+
+    /// 小于这个幅度的回落算抖动，不进"二次确认"流程（单位：百分点）
+    static let dropTolerance: Double = 3
 }
