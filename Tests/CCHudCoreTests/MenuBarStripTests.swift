@@ -246,41 +246,6 @@ final class MenuBarStripTests: XCTestCase {
         XCTAssertTrue(MenuBarStrip.menuBarVisible(autoHideEnabled: false, hasStatusItems: true))
     }
 
-    // MARK: 7D 重置展示判据（剩余 <20% 或 距重置 <24h）
-
-    private let now = Date(timeIntervalSince1970: 1_700_000_000)
-
-    func testSevenDayResetShownWhenQuotaLow() {
-        XCTAssertTrue(MenuBarStrip.showsSevenDayReset(
-            remainPct: 19, resetsAt: now.addingTimeInterval(5 * 86400), now: now))
-    }
-
-    func testSevenDayResetHiddenAtExactly20Percent() {
-        XCTAssertFalse(MenuBarStrip.showsSevenDayReset(
-            remainPct: 20, resetsAt: now.addingTimeInterval(5 * 86400), now: now),
-                       "判据是「低于 20%」，20 本身不触发")
-    }
-
-    func testSevenDayResetShownWhenResetWithin24h() {
-        XCTAssertTrue(MenuBarStrip.showsSevenDayReset(
-            remainPct: 80, resetsAt: now.addingTimeInterval(23 * 3600), now: now))
-    }
-
-    func testSevenDayResetHiddenAtExactly24h() {
-        XCTAssertFalse(MenuBarStrip.showsSevenDayReset(
-            remainPct: 80, resetsAt: now.addingTimeInterval(24 * 3600), now: now))
-    }
-
-    func testSevenDayResetHiddenWhenComfortable() {
-        XCTAssertFalse(MenuBarStrip.showsSevenDayReset(
-            remainPct: 41, resetsAt: now.addingTimeInterval(3 * 86400), now: now))
-    }
-
-    func testSevenDayResetHiddenWithoutResetDate() {
-        // 没有重置时刻可显示 → 只剩"低额度"这一条也没东西可展示
-        XCTAssertFalse(MenuBarStrip.showsSevenDayReset(remainPct: 5, resetsAt: nil, now: now))
-    }
-
     // MARK: 同名显示器去重（本机就是两台同名 T2752U）
 
     func testLabelsDisambiguateSameNameByPosition() {

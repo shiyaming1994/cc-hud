@@ -109,6 +109,13 @@ public struct AccountUsage: Sendable, Equatable {
     /// 剩余低于此即告警（整条高亮 + 最小胶囊冒出提醒）
     public static let lowQuotaRemainPct: Double = 20
 
+    /// 7D 重置时刻是否值得占这点宽度：剩余低于 lowQuotaRemainPct，或距重置不足 24h。
+    /// 没有重置时刻就没东西可展示，直接不展示。
+    public static func showsSevenDayReset(remainPct: Double, resetsAt: Date?, now: Date) -> Bool {
+        guard let resetsAt else { return false }
+        return remainPct < lowQuotaRemainPct || resetsAt.timeIntervalSince(now) < 24 * 3600
+    }
+
     /// 投影到 now 后，剩余 < lowQuotaRemainPct 的最紧张窗口（两个都不低 → nil）。
     /// 给最小胶囊用：平时不显示额度，只在某个窗口快见底时把它顶出来。
     public func alertWindow(now: Date) -> (label: String, remainPct: Double, resetsAt: Date?)? {
