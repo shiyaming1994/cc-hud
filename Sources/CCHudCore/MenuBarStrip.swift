@@ -47,23 +47,36 @@ public enum MenuBarStrip {
             || resetsAt.timeIntervalSince(now) < 24 * 3600
     }
 
-    /// 显示器菜单项文案：同名的按 x 从左到右加方位后缀（本机就是两台同名 T2752U），
-    /// 唯一名保持原样。返回顺序与入参一致。
+    /// 显示器菜单项文案：同型号的按 x 从左到右加方位后缀，唯一的保持原样。返回顺序与入参一致。
+    /// 分组前先剥掉 macOS 自己加的 " (n)" 编号 —— 实测两块同型号屏的 localizedName 是
+    /// "T2752U (1)" / "T2752U (2)"，字符串不同所以躲过朴素的同名判定，而那个编号与左右位置无关，
+    /// 用户照着它选屏只能靠试。
     public static func displayLabels(_ screens: [(name: String, minX: CGFloat)]) -> [String] {
+        let bases = screens.map { stripSystemNumbering($0.name) }
         var counts: [String: Int] = [:]
-        for s in screens { counts[s.name, default: 0] += 1 }
+        for b in bases { counts[b, default: 0] += 1 }
         // 同名组内按 x 升序 → 该屏在组里的序号
-        var ranks: [String: [Int]] = [:]   // name → 按 x 排序后的原始下标
-        for name in counts.keys where counts[name]! > 1 {
-            ranks[name] = screens.indices
-                .filter { screens[$0].name == name }
+        var ranks: [String: [Int]] = [:]   // 型号名 → 按 x 排序后的原始下标
+        for base in counts.keys where counts[base]! > 1 {
+            ranks[base] = screens.indices
+                .filter { bases[$0] == base }
                 .sorted { screens[$0].minX < screens[$1].minX }
         }
         return screens.indices.map { i in
-            let name = screens[i].name
-            guard let order = ranks[name], let rank = order.firstIndex(of: i) else { return name }
-            return name + "（" + suffix(rank: rank, of: order.count) + "）"
+            guard let order = ranks[bases[i]], let rank = order.firstIndex(of: i) else {
+                return screens[i].name        // 不重名：连系统编号一起原样保留
+            }
+            return bases[i] + "（" + suffix(rank: rank, of: order.count) + "）"
         }
+    }
+
+    /// 去掉结尾的 " (n)"（macOS 给同型号显示器加的编号）
+    private static func stripSystemNumbering(_ name: String) -> String {
+        guard name.hasSuffix(")"), let open = name.lastIndex(of: "(") else { return name }
+        let inside = name[name.index(after: open)..<name.index(before: name.endIndex)]
+        guard !inside.isEmpty, inside.allSatisfy(\.isNumber),
+              open > name.startIndex, name[name.index(before: open)] == " " else { return name }
+        return String(name[name.startIndex..<name.index(before: open)])
     }
 
     private static func suffix(rank: Int, of total: Int) -> String {

@@ -156,6 +156,23 @@ final class MenuBarStripTests: XCTestCase {
                        "同名按 x 排序标左右；唯一名保持原样；返回顺序与入参一致")
     }
 
+    func testLabelsStripSystemNumberingBeforeGrouping() {
+        // 实测：macOS 自己把两块同型号屏命名成 "T2752U (1)" / "T2752U (2)"，字符串并不相同，
+        // 而编号与位置无关（本机 (1) 在左、(2) 在右）→ 必须先剥掉系统编号再按位置重标
+        let labels = MenuBarStrip.displayLabels([
+            (name: "Built-in Retina Display", minX: 0),
+            (name: "T2752U (2)", minX: 783),
+            (name: "T2752U (1)", minX: -1137),
+        ])
+        XCTAssertEqual(labels, ["Built-in Retina Display", "T2752U（右）", "T2752U（左）"])
+    }
+
+    func testLabelsKeepSystemNumberingWhenItIsTheOnlyOne() {
+        // 只有一块带编号的屏 → 没什么可去重的，原样保留，别自作主张改名
+        XCTAssertEqual(MenuBarStrip.displayLabels([(name: "T2752U (1)", minX: 0)]),
+                       ["T2752U (1)"])
+    }
+
     func testLabelsUseLeftMiddleRightForThree() {
         let labels = MenuBarStrip.displayLabels([
             (name: "S", minX: 100), (name: "S", minX: -100), (name: "S", minX: 0),
