@@ -52,6 +52,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // 图标不无条件挂 —— 有额度可显示时只显示文字，见 refreshStripTitle。
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
+        // 显示文字时 image = nil，图标上那句 accessibilityDescription 就跟着没了，
+        // VoiceOver 只剩裸标题可读 —— 而间距走 kern 不走字符，标题串里一个空格都没有
+        // （"5H68%16:457D96%59M"）。标签挂在按钮上，两种形态都认得出这一格是谁。
+        item.button?.setAccessibilityLabel("CC HUD")
         // 自动启用会按「有没有 action / 子菜单里有没有可用项」自己算 isEnabled，
         // 把手写的 isEnabled 覆盖掉 —— 档位那一项带子菜单，恒被算成可用，
         // 关掉额度条也灰不下去。根菜单里该灰的信息行本来就各自写了 isEnabled = false，
