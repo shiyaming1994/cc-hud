@@ -90,6 +90,10 @@ public final class EventServer: @unchecked Sendable {
         // n == 0: EOF → 解码；n < 0: 错误 → 丢弃
         if n == 0, let data = connections[fd]?.buffer, !data.isEmpty {
             if let env = try? JSONDecoder().decode(Envelope.self, from: data) {
+                // 额度对不上时的唯一取证手段：Claude Code 发来的原始 status 报文
+                // （含我们没解的字段）。默认关闭,开:
+                // defaults write io.github.shiyaming.cc-hud debug.log -bool true
+                if env.kind == "status" { DebugLog.dump(data, label: "status") }
                 onEnvelope(env)
             } else if let env = Self.minimalEnvelope(from: data) {
                 // schema 漂移（某字段类型变化）：宽松提取核心字段，生命周期照常工作
