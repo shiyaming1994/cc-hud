@@ -52,6 +52,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // 图标不无条件挂 —— 有额度可显示时只显示文字，见 refreshStripTitle。
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
+        // 自动启用会按「有没有 action / 子菜单里有没有可用项」自己算 isEnabled，
+        // 把手写的 isEnabled 覆盖掉 —— 档位那一项带子菜单，恒被算成可用，
+        // 关掉额度条也灰不下去。根菜单里该灰的信息行本来就各自写了 isEnabled = false，
+        // 关掉自动启用后那些写法才真正生效（子菜单是各自独立的 NSMenu，不受影响）。
+        menu.autoenablesItems = false
         menu.delegate = self
         item.menu = menu
         // 更新状态变化(发现新版/下载进度)→ 即时重建,菜单开着也能看到进度跳动
