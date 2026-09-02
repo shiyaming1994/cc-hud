@@ -28,6 +28,20 @@ public enum MenuBarStrip {
         return CGRect(x: x, y: bar.minY, width: w, height: bar.height)
     }
 
+    /// 目标屏下标：存档屏在场就用它；否则「自动」——**优先无刘海屏**。
+    /// 刘海屏不能当自动首选：实测内置屏菜单栏被 App 菜单(~0–560) + 刘海(668–828) +
+    /// 13 个状态项(914–1496) 挤满，剩下的两段空隙只有 108pt / 86pt，条子放不下，
+    /// 落在哪边都会压住别人。全是刘海屏（合盖只剩内置屏）才退回主屏。
+    /// 无刘海屏有多块时取**最靠左**的，不取 NSScreen.screens 的天然顺序 —— 实测两块同型号屏
+    /// 在不同进程里顺序并不一致，靠它选屏会让条子在重启后自己跳到另一块屏上。
+    public static func preferredScreenIndex(savedUUID: String?, uuids: [String?],
+                                            hasNotch: [Bool], minX: [CGFloat]) -> Int? {
+        guard !uuids.isEmpty else { return nil }
+        if let savedUUID, let i = uuids.firstIndex(of: savedUUID) { return i }
+        let plain = uuids.indices.filter { !hasNotch[$0] }
+        return plain.min { minX[$0] < minX[$1] } ?? 0
+    }
+
     /// 枚举不到 layer-24 菜单栏窗口时的兜底矩形：顶部内缩量推得出就用它（主屏会把菜单栏
     /// 从 visibleFrame 里扣掉），推不出就用系统菜单栏厚度（实测外接屏 visibleFrame == frame，
     /// 顶部什么都不扣）。宁可条子落在一个估出来的位置，也不能整条消失。

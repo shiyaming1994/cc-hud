@@ -89,6 +89,44 @@ final class MenuBarStripTests: XCTestCase {
         XCTAssertEqual(f.minX, 0)
     }
 
+    // MARK: 目标屏选择
+
+    func testPrefersSavedScreenWhenPresent() {
+        let i = MenuBarStrip.preferredScreenIndex(savedUUID: "B", uuids: ["A", "B", "C"],
+                                                  hasNotch: [true, false, false],
+                                                  minX: [0, 783, -1137])
+        XCTAssertEqual(i, 1, "存档屏在场就用它，哪怕它不是最靠左的那块")
+    }
+
+    func testAutoPrefersScreenWithoutNotch() {
+        // 「自动」不能选刘海屏：实测内置屏菜单栏被 App 菜单 + 刘海 + 状态项挤满，
+        // 两段空隙只有 108pt / 86pt，条子放不下必然压住别人
+        // 本机实测坐标：内置屏 0、T2752U(2) 在 783、T2752U(1) 在 -1137 → 自动取最靠左的 (1)
+        let i = MenuBarStrip.preferredScreenIndex(savedUUID: nil, uuids: ["A", "B", "C"],
+                                                  hasNotch: [true, false, false],
+                                                  minX: [0, 783, -1137])
+        XCTAssertEqual(i, 2, "两块无刘海屏 → 取最靠左的那块，不看 screens 顺序")
+    }
+
+    func testFallsBackToAutoWhenSavedScreenAbsent() {
+        // 存档屏拔掉了 → 按「自动」规则临时落位（存档本身不动，由调用方保证）
+        let i = MenuBarStrip.preferredScreenIndex(savedUUID: "GONE", uuids: ["A", "B"],
+                                                  hasNotch: [true, false], minX: [0, 783])
+        XCTAssertEqual(i, 1)
+    }
+
+    func testAutoFallsBackToMainWhenEveryScreenHasNotch() {
+        // 只有内置屏（合盖外接全拔）→ 没得挑，落主屏
+        let i = MenuBarStrip.preferredScreenIndex(savedUUID: nil, uuids: ["A"],
+                                                  hasNotch: [true], minX: [0])
+        XCTAssertEqual(i, 0)
+    }
+
+    func testNoScreenAtAll() {
+        XCTAssertNil(MenuBarStrip.preferredScreenIndex(savedUUID: nil, uuids: [],
+                                                       hasNotch: [], minX: []))
+    }
+
     // MARK: 菜单栏矩形兜底（枚举不到 layer-24 菜单栏窗口时）
 
     func testFallbackBarUsesVisibleFrameTopInset() {

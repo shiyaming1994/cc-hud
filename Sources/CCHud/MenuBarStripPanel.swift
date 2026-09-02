@@ -71,14 +71,17 @@ final class MenuBarStripPanel: NSPanel {
         UserDefaults.standard.set(uuid ?? "", forKey: screenKey)
     }
 
-    /// 目标屏：存档屏在场就用它；不在场（还没插上 / 已拔掉）临时落主屏，**存档不动**，
-    /// 屏一回来 didChangeScreenParameters 就会把条子接回去。
+    /// 目标屏：存档屏在场就用它；不在场（还没插上 / 已拔掉）按「自动」临时落位，**存档不动**，
+    /// 屏一回来 didChangeScreenParameters 就会把条子接回去。选屏规则见 MenuBarStrip.preferredScreenIndex。
     private func targetScreen() -> NSScreen? {
-        if let uuid = Self.savedScreenUUID,
-           let s = NSScreen.screens.first(where: { $0.displayUUID == uuid }) {
-            return s
-        }
-        return NSScreen.screens.first
+        let screens = NSScreen.screens
+        guard let i = MenuBarStrip.preferredScreenIndex(
+                savedUUID: Self.savedScreenUUID,
+                uuids: screens.map(\.displayUUID),
+                hasNotch: screens.map { $0.safeAreaInsets.top > 0 },
+                minX: screens.map(\.frame.minX))
+        else { return nil }
+        return screens[i]
     }
 
     // MARK: 显隐与落位
