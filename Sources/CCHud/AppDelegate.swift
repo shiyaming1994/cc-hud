@@ -210,9 +210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                          todayTokens: self.store.todayTokens ?? 0,
                                          level: level, now: Date())
             })
-        // 额度条与会话浮窗不再互斥：额度条只是菜单栏里的一格文字，抢不到浮窗的位置。
-        // 浮窗显隐只走菜单「显示 / 隐藏 HUD」。
-        panel.orderFrontRegardless()
+        // 会话浮窗默认隐藏：菜单栏那行额度已经能一眼看到额度，浮窗是"要看会话列表时才叫出来"
+        // 的东西，不该一启动就占屏。要看走菜单「显示 / 隐藏 HUD」。
+        // （额度条与浮窗不再互斥 —— 额度条只是菜单栏里的一格文字，抢不到浮窗的位置。）
         // 额度真的变了才重画标题（值没变不触发，见 StateStore.onAccountChanged）
         self.store.onAccountChanged = { [weak self] in self?.statusItem?.refreshStripTitle() }
         // 分钟心跳：重置时刻与倒计时随时间走。今日 token 的变化也搭这班车 —— 它变得慢，
