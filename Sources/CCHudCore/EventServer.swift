@@ -93,8 +93,13 @@ public final class EventServer: @unchecked Sendable {
                 // 额度对不上时的唯一取证手段：Claude Code 发来的原始 status 报文
                 // （含我们没解的字段）。默认关闭,开:
                 // defaults write io.github.shiyaming.cc-hud debug.log -bool true
-                // 10s 限速：status 是高频事件，取证要的是"当前值长什么样"，不是每一条
-                if env.kind == "status" { DebugLog.dump(data, label: "status", minInterval: 10) }
+                // 按**会话**限速 30s：status 是高频事件，但取证的问题是"闲置会话到底报不报
+                // 陈旧额度"，按 label 限速会让最活跃的会话吃光配额、样本里只剩它一个。
+                if env.kind == "status" {
+                    DebugLog.dump(data, label: "status",
+                                  rateKey: "status/" + (env.payload.sessionId ?? "nil"),
+                                  minInterval: 30)
+                }
                 onEnvelope(env)
             } else if let env = Self.minimalEnvelope(from: data) {
                 // schema 漂移（某字段类型变化）：宽松提取核心字段，生命周期照常工作
