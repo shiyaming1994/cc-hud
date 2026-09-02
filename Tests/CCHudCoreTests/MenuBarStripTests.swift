@@ -56,16 +56,44 @@ final class MenuBarStripTests: XCTestCase {
         // 枚举不到状态项（探测失败/该屏无状态项）→ 退回居中，不硬贴屏右缘压住时钟
         let f = MenuBarStrip.frame(bar: rightBar, statusItemsMinX: nil, notch: nil,
                                    contentWidth: 240, gap: 12)
-        XCTAssertEqual(f, CGRect(x: 1623, y: 2017, width: 240, height: 30),
-                       "居中于菜单栏中心 1743")
+        XCTAssertEqual(f, CGRect(x: 1617, y: 2017, width: 240, height: 30),
+                       "居中于可用区 [783, 2691] 的中心 1737 → 1737-120")
     }
 
-    func testPushedLeftOfNotchWhenOverlapping() {
-        // 主屏实测：右对齐结果 952-12-240=700，与刘海 [668,828] 相交 → 整条推到刘海左侧
+    func testNeverCrossesNotchEvenIfContentTooWide() {
+        // 主屏实测：可用区只有 [828, 940] = 112pt。内容宣称 240 也只能占 112，
+        // 且左缘不得越过刘海右缘去压 App 菜单（这正是 1.4.0 首次安装时撞上的问题）
         let f = MenuBarStrip.frame(bar: mainBar, statusItemsMinX: 952, notch: notch,
                                    contentWidth: 240, gap: 12)
-        XCTAssertEqual(f, CGRect(x: 416, y: 938, width: 240, height: 29),
-                       "668-12-240=416，完整落在刘海左侧")
+        XCTAssertEqual(f, CGRect(x: 828, y: 938, width: 112, height: 29))
+    }
+
+    // MARK: 可用宽度预算与降级选档
+
+    func testBudgetIsNotchRightEdgeToStatusItems() {
+        // 内置刘海屏实测：刘海右缘 828、状态项左缘 952 → 只有 112pt 可用
+        XCTAssertEqual(MenuBarStrip.budget(bar: mainBar, statusItemsMinX: 952,
+                                           notch: notch, gap: 12), 112)
+    }
+
+    func testBudgetOnNotchlessScreenIsWholeLeftSpan() {
+        // 外接屏：左界就是菜单栏左缘 783，右界 2157-12 → 1362pt,整条随便放
+        XCTAssertEqual(MenuBarStrip.budget(bar: rightBar, statusItemsMinX: 2157,
+                                           notch: nil, gap: 12), 1362)
+    }
+
+    func testFittingVariantPicksRichestThatFits() {
+        // 各档宽度由富到简；预算 112 → 跳过前两档，选第三档
+        XCTAssertEqual(MenuBarStrip.fittingVariant(widths: [192, 150, 110, 78, 55], budget: 112), 2)
+    }
+
+    func testFittingVariantPicksFullWhenRoomy() {
+        XCTAssertEqual(MenuBarStrip.fittingVariant(widths: [192, 150, 110, 78, 55], budget: 1362), 0)
+    }
+
+    func testFittingVariantNilWhenEvenSimplestDoesNotFit() {
+        // 连最简的都塞不下（状态项多到把空隙吃光）→ 整条不上屏，不硬挤
+        XCTAssertNil(MenuBarStrip.fittingVariant(widths: [192, 150, 110, 78, 55], budget: 40))
     }
 
     func testKeepsRightAlignWhenNotchNotInTheWay() {
@@ -75,11 +103,11 @@ final class MenuBarStripTests: XCTestCase {
         XCTAssertEqual(f.minX, 840)
     }
 
-    func testClampsOversizeContentToBar() {
+    func testClampsOversizeContentToAvailableSpan() {
         let f = MenuBarStrip.frame(bar: mainBar, statusItemsMinX: 952, notch: nil,
                                    contentWidth: 3000, gap: 12)
-        XCTAssertEqual(f, CGRect(x: 0, y: 938, width: 1496, height: 29),
-                       "内容超菜单栏宽 → 夹到菜单栏宽并贴左缘")
+        XCTAssertEqual(f, CGRect(x: 0, y: 938, width: 940, height: 29),
+                       "无刘海时左界是菜单栏左缘，右界仍是状态项左缘 -12,绝不压图标")
     }
 
     func testClampsLeftEdgeIntoBar() {

@@ -12,20 +12,32 @@ public enum MenuBarStrip {
                width: r.width, height: r.height)
     }
 
+    /// 条子可用的横向预算：左界 = 刘海右缘（无刘海则菜单栏左缘），右界 = 状态项左缘 - gap。
+    /// 内容按这个预算降级（见 fittingVariant），放不下就少显示几段，而不是推到刘海左侧去压
+    /// App 菜单 —— 实测内置屏刘海左侧只有 ~108pt 且左界(App 菜单右缘)不可测，推过去必撞。
+    public static func budget(bar: CGRect, statusItemsMinX: CGFloat?, notch: CGRect?,
+                              gap: CGFloat = 12) -> CGFloat {
+        let left = max(bar.minX, notch?.maxX ?? bar.minX)
+        let right = (statusItemsMinX ?? bar.maxX) - gap
+        return max(0, right - left)
+    }
+
+    /// 从"最全"到"最简"排好的各档宽度里，选第一个塞得下的；连最简的都塞不下返回 nil（整条不上屏）。
+    public static func fittingVariant(widths: [CGFloat], budget: CGFloat) -> Int? {
+        widths.indices.first { widths[$0] <= budget }
+    }
+
     /// 条子 frame（NS 坐标）：整条填满菜单栏高度，右缘贴状态项左缘 - gap，内容变宽向左生长。
-    /// - 拿不到状态项左缘（枚举失败 / 该屏无状态项）→ 居中于菜单栏，不硬贴屏右缘压住时钟。
-    /// - 与刘海相交 → 整条推到刘海左侧（选到内置屏时才可能发生）。
-    /// - 无论如何都夹在菜单栏矩形内，绝不越出屏外。
+    /// - 拿不到状态项左缘（枚举失败 / 该屏无状态项）→ 居中于可用区，不硬贴屏右缘压住时钟。
+    /// - 左界恒为刘海右缘：宁可少显示几段（调用方已按 budget 降级），也不越过刘海去压 App 菜单。
     public static func frame(bar: CGRect, statusItemsMinX: CGFloat?, notch: CGRect?,
                              contentWidth: CGFloat, gap: CGFloat = 12) -> CGRect {
-        let w = min(contentWidth, bar.width)
-        var x = statusItemsMinX.map { $0 - gap - w } ?? (bar.midX - w / 2)
-        // 刘海避让：只在真相交时才推，够窄能落在刘海右侧就不动
-        if let notch, x < notch.maxX, x + w > notch.minX {
-            x = notch.minX - gap - w
-        }
-        x = min(max(x, bar.minX), bar.maxX - w)
-        return CGRect(x: x, y: bar.minY, width: w, height: bar.height)
+        let left = max(bar.minX, notch?.maxX ?? bar.minX)
+        let right = (statusItemsMinX ?? bar.maxX) - gap
+        let w = min(contentWidth, max(0, right - left))
+        let x = statusItemsMinX == nil ? (left + right) / 2 - w / 2 : right - w
+        return CGRect(x: min(max(x, left), max(left, right - w)), y: bar.minY,
+                      width: w, height: bar.height)
     }
 
     /// 目标屏下标：存档屏在场就用它；否则「自动」——**优先无刘海屏**。

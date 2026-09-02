@@ -158,10 +158,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 3.5 菜单栏额度条：与浮窗互斥，由菜单「菜单栏额度条」开关决定谁上屏（见 applyStripMode）。
         // 全窗穿透、不吃鼠标，所以不进悬停监视器。
         let stripRef = WeakStripRef()
+        let stripMetrics = StripMetrics()
         let strip = MenuBarStripView(
             store: store,
+            metrics: stripMetrics,
             onWidthChange: { w in stripRef.panel?.applyContentWidth(w) })
-        let stripPanel = MenuBarStripPanel(rootView: strip)
+        let stripPanel = MenuBarStripPanel(rootView: strip, metrics: stripMetrics)
         stripRef.panel = stripPanel
         self.stripPanel = stripPanel
         installHoverMonitor(panelRef: panelRef)

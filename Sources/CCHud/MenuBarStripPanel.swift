@@ -18,6 +18,8 @@ final class MenuBarStripPanel: NSPanel {
     private var contentWidth: CGFloat = 240
     /// 模式开关的意愿；真正上不上屏还要看有没有数据（三源全无时内容宽度为 0）
     private var wantsVisible = false
+    /// 视图侧的可用宽度预算（内容按它降级）；与窗口落位同源刷新
+    let metrics: StripMetrics
     private var settleTask: Task<Void, Never>?
     private var pollTimer: Timer?
 
@@ -25,7 +27,8 @@ final class MenuBarStripPanel: NSPanel {
     /// 只能兜底轮询；真正的高频变化都走事件驱动（见 init 里的观察者）。
     private static let pollInterval: TimeInterval = 2
 
-    init(rootView: some View) {
+    init(rootView: some View, metrics: StripMetrics) {
+        self.metrics = metrics
         super.init(contentRect: NSRect(x: 0, y: 0, width: 240, height: 24),
                    styleMask: [.nonactivatingPanel, .borderless],
                    backing: .buffered, defer: false)
@@ -123,6 +126,11 @@ final class MenuBarStripPanel: NSPanel {
                                             safeAreaTop: screen.safeAreaInsets.top,
                                             auxLeft: screen.auxiliaryTopLeftArea,
                                             auxRight: screen.auxiliaryTopRightArea)
+        // 预算先回灌：视图据此选档 → 新宽度经 applyContentWidth 回来，不会成环
+        // （预算只取决于菜单栏几何，与内容宽度无关）
+        let b = MenuBarStrip.budget(bar: layout.bar, statusItemsMinX: layout.statusItemsMinX,
+                                    notch: notch)
+        if abs(metrics.budget - b) > 0.5 { metrics.budget = b }
         let f = MenuBarStrip.frame(bar: layout.bar, statusItemsMinX: layout.statusItemsMinX,
                                    notch: notch, contentWidth: contentWidth)
         place(f, animated: animated)
