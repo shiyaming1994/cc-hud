@@ -212,14 +212,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// 档位子菜单：菜单项标题就是该档的实际内容，选完长什么样一眼看到，不用抽象词。
     /// 真状态项只有一个全局宽度、所有屏一样，所以详略只能由用户显式选（见 StripLevel）。
+    ///
+    /// 样本一律不着色（`colored: false`）——菜单高亮行会把写死的前景色留在 accent 底上，
+    /// 标签 / `%` / token 直接溶掉。撞脸的档退回文字描述（见 StripContent.dedupe）。
     private func buildLevelMenu() -> NSMenu {
         let m = NSMenu()
-        for level in StripLevel.allCases {
-            let sample = StripTitle.attributed(stripRuns(level))
+        let levels = StripLevel.allCases
+        for (level, runs) in zip(levels, StripContent.dedupe(levels.map(stripRuns))) {
             let mi = NSMenuItem(title: "", action: #selector(pickStripLevel(_:)), keyEquivalent: "")
-            // 还没收到 status 时没样本可展示，退回档位描述，别给一排空菜单项
-            mi.attributedTitle = sample.length > 0
-                ? sample : NSAttributedString(string: Self.levelFallbackTitle(level))
+            // runs == nil：还没收到 status（没样本可展示），或与前一档撞脸 —— 都退回档位描述
+            mi.attributedTitle = runs.map { StripTitle.attributed($0, colored: false) }
+                ?? NSAttributedString(string: Self.levelFallbackTitle(level))
             mi.target = self
             mi.tag = level.rawValue
             mi.state = settings.level == level ? .on : .off

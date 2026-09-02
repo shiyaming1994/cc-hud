@@ -95,7 +95,14 @@ public enum StripTitle {
     ///
     /// 颜色用 `NSColor(name:dynamicProvider:)` 包一层，深浅外观由系统在绘制时解析，
     /// 不需要我们监听外观变化重画。
-    public static func attributed(_ runs: [StripRun]) -> NSAttributedString {
+    ///
+    /// - Parameter colored: 菜单里当样本用时传 `false`。**NSMenu 的高亮行是 accent 色填充、
+    ///   期望文字反白，显式的 `.foregroundColor` 会把反白盖掉**：`.l3` #6B6B72 压在 accent 蓝
+    ///   #0064D9 上对比度只有 1.04:1，标签 / `%` / token 整个溶进底色。不写前景色（连带不挂
+    ///   光晕）就交给系统自己反白，字距 / 字重 / 间距照旧，样本的排版预览效果不变。
+    ///   同一个坑本文件的更新横幅早记过（见 StatusItemController 的 `menu(_:willHighlight:)`），
+    ///   那条注释「只有横幅需要」在加了档位子菜单之后就不成立了。
+    public static func attributed(_ runs: [StripRun], colored: Bool = true) -> NSAttributedString {
         let out = NSMutableAttributedString()
         for run in runs {
             switch run {
@@ -103,10 +110,12 @@ public enum StripTitle {
                 guard !s.isEmpty else { continue }
                 var attrs: [NSAttributedString.Key: Any] = [
                     .font: StripStyle.font(weight),
-                    .foregroundColor: dynamic(ink),
                     .kern: StripStyle.tracking(tracking),
                 ]
-                if glow { attrs[.shadow] = dynamicGlow }
+                if colored {
+                    attrs[.foregroundColor] = dynamic(ink)
+                    if glow { attrs[.shadow] = dynamicGlow }
+                }
                 out.append(NSAttributedString(string: s, attributes: attrs))
             case .gap(let g):
                 // 没有可依附的前一段就丢掉（首位的间距）

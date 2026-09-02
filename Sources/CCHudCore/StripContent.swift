@@ -117,6 +117,27 @@ public enum StripContent {
         }
     }
 
+    /// 档位样本去重。某些数据下相邻档会退化成**完全相同**的一串：
+    /// - `todayTokens == 0`（启动后扫描还没出结果、或今天没用量）时，`.full` 与 `.noToken`
+    ///   全等 —— token 段本来就不出。这是最常撞的一种；
+    /// - 最紧的是 7D 且 7D 不紧张（剩余 ≥20% 且距重置 ≥24h）时，`.tightestWithTime`
+    ///   与 `.tightest` 全等 —— `sevenGroup` 的 tail 要 `sevenUrgent` 才给；
+    /// - 5H 没有 `resetsAt` 时，`.noToken` 与 `.noFiveTime` 全等。
+    ///
+    /// 旧的自动降级阶梯本就有这道去重（「缺数据时相邻档会退化成同一串，去重免得白测一遍」），
+    /// 改成用户手选档位时丢了 —— 而档位子菜单恰恰把每一档都摆出来给人选，撞脸就是两行
+    /// 一模一样、选哪个都没区别，正好毁掉「选完长什么样一眼看到」这个唯一理由。
+    ///
+    /// 返回与入参等长；重复出现的、以及本就为空的那一档为 `nil`，调用方据此退回文字描述。
+    public static func dedupe(_ samples: [[StripRun]]) -> [[StripRun]?] {
+        var seen: [[StripRun]] = []
+        return samples.map { runs in
+            guard !runs.isEmpty, !seen.contains(runs) else { return nil }
+            seen.append(runs)
+            return runs
+        }
+    }
+
     /// 一组 = 标签 ⟨4⟩ 数值 ⟨1.5⟩ 百分号 ⟨5⟩ 时刻。
     /// 剩余 20–50 / <20 时数值与百分号一起换 Bold 700 + 档位色（字号不变）；
     /// 百分号平时用 L3、告警时跟着换成档位色。

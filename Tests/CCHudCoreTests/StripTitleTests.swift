@@ -93,6 +93,38 @@ final class StripTitleTests: XCTestCase {
         }
     }
 
+    // MARK: 菜单样本：不着色
+
+    func testUncoloredDropsForegroundAndShadow() {
+        // NSMenu 高亮行是 accent 填充、期望文字反白；写死前景色会盖掉反白
+        // （.l3 #6B6B72 压在 accent 蓝上只有 1.04:1）。样本不写颜色，交给系统。
+        let s = StripTitle.attributed([
+            .text("68", weight: .five, ink: .l1, tracking: .none, glow: true),
+        ], colored: false)
+        XCTAssertNil(s.attribute(.foregroundColor, at: 0, effectiveRange: nil),
+                     "不着色时不该写前景色")
+        XCTAssertNil(s.attribute(.shadow, at: 0, effectiveRange: nil),
+                     "光晕也一并去掉——白色描边在高亮底上只会更糊")
+    }
+
+    func testUncoloredKeepsTypographyIdentical() {
+        // 排版必须与着色版逐字一致，否则样本预览不出真实效果
+        let runs: [StripRun] = [
+            .text("5H", weight: .label, ink: .l3, tracking: .label, glow: false),
+            .gap(.labelToValue),
+            .text("68", weight: .five, ink: .l1, tracking: .none, glow: true),
+        ]
+        let colored = StripTitle.attributed(runs)
+        let plain = StripTitle.attributed(runs, colored: false)
+        XCTAssertEqual(colored.string, plain.string)
+        for i in 0..<plain.length {
+            XCTAssertEqual(plain.attribute(.font, at: i, effectiveRange: nil) as? NSFont,
+                           colored.attribute(.font, at: i, effectiveRange: nil) as? NSFont)
+            XCTAssertEqual(plain.attribute(.kern, at: i, effectiveRange: nil) as? CGFloat,
+                           colored.attribute(.kern, at: i, effectiveRange: nil) as? CGFloat)
+        }
+    }
+
     func testGapMagnitudesMatchTheDesign() {
         // 设计稿《菜单栏额度条 · 齐平》：组内 4 / 1.5 / 5，组间 13
         XCTAssertEqual(StripStyle.gap(.labelToValue), 4)

@@ -182,6 +182,61 @@ final class StripContentTests: XCTestCase {
         if case .gap = r.last! { XCTFail("末位不应是间距") }
     }
 
+    // MARK: 档位样本去重（子菜单把每一档都摆出来给人选，撞脸就是两行一模一样）
+
+    private func samples(_ a: AccountUsage, tokens: Int = 0) -> [[StripRun]?] {
+        StripContent.dedupe(StripLevel.allCases.map {
+            StripContent.runs(account: a, todayTokens: tokens, level: $0, now: now)
+        })
+    }
+
+    func testTightestPairCollapsesWhenSevenDayIsTighterButCalm() {
+        // 5H 剩 68、7D 剩 40 → 最紧的是 7D；40% 且 6 天后重置 → 不紧张 → 档 3 拿不到 tail
+        let s = samples(account(sevenUsed: 60))
+        XCTAssertNotNil(s[StripLevel.tightestWithTime.rawValue], "先出现的那一档保留样本")
+        XCTAssertNil(s[StripLevel.tightest.rawValue], "与档 3 全等 → 退回文字描述")
+    }
+
+    func testTightestPairKeptApartWhenFiveHourIsTightest() {
+        // 5H 最紧且有重置时刻 → 档 3 带 16:45、档 4 不带，两档不同
+        let s = samples(account())
+        XCTAssertNotNil(s[StripLevel.tightestWithTime.rawValue])
+        XCTAssertNotNil(s[StripLevel.tightest.rawValue])
+    }
+
+    func testNoTokenAndNoFiveTimeCollapseWithoutFiveHourResetTime() {
+        // 带上 token，好让档 0 与档 1 分开，单独看档 1 与档 2 这一对
+        let s = samples(account(fiveResetIn: nil), tokens: 59_000_000)
+        XCTAssertNotNil(s[StripLevel.noToken.rawValue])
+        XCTAssertNil(s[StripLevel.noFiveTime.rawValue], "5H 没有重置时刻 → 去掉时刻等于没去")
+    }
+
+    func testFullAndNoTokenCollapseWhenTodayTokenIsZero() {
+        // 最常撞的一种：启动后扫描还没出结果、或今天没用量 → token 段本来就不出
+        let s = samples(account(), tokens: 0)
+        XCTAssertNotNil(s[StripLevel.full.rawValue])
+        XCTAssertNil(s[StripLevel.noToken.rawValue], "没有 token 段可去 → 档 0 与档 1 全等")
+    }
+
+    func testAllLevelsSurviveOnRichData() {
+        let s = samples(account(), tokens: 59_000_000)
+        XCTAssertEqual(s.compactMap { $0 }.count, StripLevel.allCases.count,
+                       "数据齐全时五档互不相同，一档都不该被折掉")
+    }
+
+    func testEmptySamplesAreNil() {
+        let a = account(fiveUsed: nil, fiveResetIn: nil, sevenUsed: nil, sevenResetIn: nil)
+        XCTAssertTrue(samples(a).allSatisfy { $0 == nil },
+                      "两个窗口都没数据 → 五档全空 → 全部退回文字描述")
+    }
+
+    func testDedupeKeepsTheFirstOccurrence() {
+        let one: [StripRun] = [.text("A", weight: .label, ink: .l1, tracking: .none, glow: false)]
+        let two: [StripRun] = [.text("B", weight: .label, ink: .l1, tracking: .none, glow: false)]
+        XCTAssertEqual(StripContent.dedupe([one, two, one, two]).map { $0 != nil },
+                       [true, true, false, false])
+    }
+
     // MARK: 过期窗口的本地校正
 
     func testExpiredWindowProjectsToFreshlyReset() {
