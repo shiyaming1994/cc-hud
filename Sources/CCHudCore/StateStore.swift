@@ -26,6 +26,9 @@ public final class StateStore {
     /// 5h 额度按当前速率预计会在重置前提前耗尽、且断档升档时回调：(剩余%, 断档分钟数, 距重置秒数)。
     /// 频率由升档去重控制——同一窗口只在跨入更高断档档位时回调，平稳不反复。
     @ObservationIgnored public var onBurnoutWarning: (@MainActor (_ remainingPct: Double, _ dropMinutes: Double, _ timeLeft: TimeInterval) -> Void)?
+    /// 额度四个数里任意一个真的变了时回调（值没变不触发）。
+    /// 菜单栏状态项据此重画标题 —— status 事件实测可达 2 条/300ms，不能每条都重画。
+    @ObservationIgnored public var onAccountChanged: (@MainActor () -> Void)?
     @ObservationIgnored private var burnoutWindow: Date?    // 已预警的 5h 窗口（投影后 resetsAt）
     @ObservationIgnored private var burnoutAlertedTier = 0  // 该窗口已弹到的最高断档档位
 
@@ -336,8 +339,12 @@ public final class StateStore {
                           pendingLow: &sevenPendingLow)
         let changed = acc != account
         account = acc
-        // status 事件可达每秒数条，值没变就别写（UserDefaults 写入会惊动 cfprefsd）
-        if changed { defaults?.set(acc.archive, forKey: Self.accountKey) }
+        // status 事件可达每秒数条，值没变就别写（UserDefaults 写入会惊动 cfprefsd）、
+        // 也别重画菜单栏
+        if changed {
+            defaults?.set(acc.archive, forKey: Self.accountKey)
+            onAccountChanged?()
+        }
         checkBurnout(now)
     }
 
