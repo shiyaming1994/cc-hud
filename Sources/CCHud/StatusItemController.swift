@@ -23,8 +23,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let previewAnimation: (String) -> Void
     private let eventStatus: () -> String
     private let previewBurnout: () -> Void
-    private let stripModeChanged: () -> Void
-    private let stripScreenChanged: () -> Void
+    /// 按档位产出额度条内容（由 AppDelegate 提供，读 store）
+    private let stripRuns: @MainActor (StripLevel) -> [StripRun]
+    private let settings = StripSettings(defaults: .standard)
+    /// 没有额度可显示时的兜底图标 —— 状态项不能完全空，否则点不到菜单
+    private static let fallbackIcon = NSImage(systemSymbolName: "rectangle.stack.fill",
+                                              accessibilityDescription: "CC HUD")
     private let updateController: UpdateController
     private var installState: InstallState = .failed("未安装")
     /// 当前菜单里的更新横幅项(仅可点状态);高亮切换时在 accent 蓝与系统反白之间换色
@@ -35,8 +39,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
          uninstall: @escaping () -> Void, eventStatus: @escaping () -> String,
          previewAnimation: @escaping (String) -> Void,
          previewBurnout: @escaping () -> Void,
-         stripModeChanged: @escaping () -> Void,
-         stripScreenChanged: @escaping () -> Void) {
+         stripRuns: @escaping @MainActor (StripLevel) -> [StripRun]) {
         self.updateController = updateController
         self.togglePanel = togglePanel
         self.reinstall = reinstall
@@ -44,17 +47,32 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.eventStatus = eventStatus
         self.previewAnimation = previewAnimation
         self.previewBurnout = previewBurnout
-        self.stripModeChanged = stripModeChanged
-        self.stripScreenChanged = stripScreenChanged
-        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        self.stripRuns = stripRuns
+        // 变宽：宽度由系统按标题量（额度条关掉时标题为空，退回图标那么宽）。
+        // 图标不无条件挂 —— 有额度可显示时只显示文字，见 refreshStripTitle。
+        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
-        item.button?.image = NSImage(systemSymbolName: "rectangle.stack.fill",
-                                     accessibilityDescription: "CC HUD")
         menu.delegate = self
         item.menu = menu
         // 更新状态变化(发现新版/下载进度)→ 即时重建,菜单开着也能看到进度跳动
         updateController.onStateChange = { [weak self] in self?.rebuildMenu() }
         rebuildMenu()
+        refreshStripTitle()
+    }
+
+    /// 重画状态项标题。有额度可显示 → 只有文字（不挂图标，省 ~19pt 菜单栏）；
+    /// 关闭额度条、或两个额度窗口都还没数据 → 退回纯图标，否则状态项全空就点不到菜单。
+    /// 全屏 / 自动隐藏 / 按屏取舍全部由系统负责，我们不判也不管 —— 这正是从独立窗口
+    /// 换成真状态项的全部理由。
+    func refreshStripTitle() {
+        let runs = settings.enabled ? stripRuns(settings.level) : []
+        guard !runs.isEmpty else {
+            item.button?.image = Self.fallbackIcon
+            item.button?.attributedTitle = NSAttributedString()
+            return
+        }
+        item.button?.image = nil
+        item.button?.attributedTitle = StripTitle.attributed(runs)
     }
 
     func setInstallState(_ state: InstallState) {
@@ -131,12 +149,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
         let stripItem = makeItem("菜单栏额度条", #selector(toggleStripMode))
-        stripItem.state = MenuBarStripPanel.enabled ? .on : .off
-        stripItem.toolTip = "在指定显示器的菜单栏上常驻一行额度,隐藏会话浮窗;条子不吃鼠标,看会话列表走下面的「显示 / 隐藏 HUD」"
+        stripItem.state = settings.enabled ? .on : .off
+        stripItem.toolTip = "在菜单栏里显示一行额度(每块屏都显示);空间不够时系统会自行取舍该屏的图标"
         menu.addItem(stripItem)
-        let screenRoot = NSMenuItem(title: "常驻显示器", action: nil, keyEquivalent: "")
-        screenRoot.submenu = buildScreenMenu()
-        menu.addItem(screenRoot)
+        let levelRoot = NSMenuItem(title: "档位", action: nil, keyEquivalent: "")
+        levelRoot.submenu = buildLevelMenu()
+        levelRoot.isEnabled = settings.enabled
+        menu.addItem(levelRoot)
         menu.addItem(makeItem("显示 / 隐藏 HUD", #selector(togglePanelAction)))
         menu.addItem(.separator())
         // ── 设置(高频开关留顶层,随手可切)
@@ -191,43 +210,32 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(makeItem("退出", #selector(quit)))
     }
 
-    /// 常驻显示器子菜单：自动 + 在场各屏。同名显示器按 x 从左到右加方位后缀
-    /// （本机就是两台同名 T2752U）；存档屏不在场时补一行灰字说明，免得用户以为设置丢了。
-    /// 「自动」的实际规则见 MenuBarStrip.preferredScreenIndex —— 文案必须跟它一致。
-    private func buildScreenMenu() -> NSMenu {
+    /// 档位子菜单：菜单项标题就是该档的实际内容，选完长什么样一眼看到，不用抽象词。
+    /// 真状态项只有一个全局宽度、所有屏一样，所以详略只能由用户显式选（见 StripLevel）。
+    private func buildLevelMenu() -> NSMenu {
         let m = NSMenu()
-        let saved = MenuBarStripPanel.savedScreenUUID
-        let auto = NSMenuItem(title: "自动（优先无刘海的屏）", action: #selector(pickStripScreen(_:)),
-                              keyEquivalent: "")
-        auto.toolTip = "有外接屏时落最靠左的那块;只剩内置刘海屏时才用它(刘海屏菜单栏空隙小,内容会降级)"
-        auto.target = self
-        auto.representedObject = ""
-        auto.state = saved == nil ? .on : .off
-        m.addItem(auto)
-        m.addItem(.separator())
-        let screens = NSScreen.screens
-        let labels = MenuBarStrip.displayLabels(screens.map { ($0.localizedName, $0.frame.minX) })
-        var sawSaved = false
-        for (i, s) in screens.enumerated() {
-            guard let uuid = s.displayUUID else { continue }
-            let mi = NSMenuItem(title: labels[i], action: #selector(pickStripScreen(_:)), keyEquivalent: "")
+        for level in StripLevel.allCases {
+            let sample = StripTitle.attributed(stripRuns(level))
+            let mi = NSMenuItem(title: "", action: #selector(pickStripLevel(_:)), keyEquivalent: "")
+            // 还没收到 status 时没样本可展示，退回档位描述，别给一排空菜单项
+            mi.attributedTitle = sample.length > 0
+                ? sample : NSAttributedString(string: Self.levelFallbackTitle(level))
             mi.target = self
-            mi.representedObject = uuid
-            mi.state = saved == uuid ? .on : .off
-            if saved == uuid { sawSaved = true }
+            mi.tag = level.rawValue
+            mi.state = settings.level == level ? .on : .off
             m.addItem(mi)
         }
-        if let saved, !sawSaved {
-            let miss = NSMenuItem(title: "上次选择的显示器未连接 · 暂按「自动」落位", action: nil,
-                                  keyEquivalent: "")
-            miss.isEnabled = false
-            miss.state = .on
-            miss.toolTip = "存档没有被覆盖,那块屏一插回来条子就自己回去（UUID \(saved)）"
-
-            m.addItem(.separator())
-            m.addItem(miss)
-        }
         return m
+    }
+
+    private static func levelFallbackTitle(_ level: StripLevel) -> String {
+        switch level {
+        case .full:             return "5H + 7D + 今日 token"
+        case .noToken:          return "5H + 7D"
+        case .noFiveTime:       return "5H + 7D（不带时刻）"
+        case .tightestWithTime: return "只显示最紧的一段（带时刻）"
+        case .tightest:         return "只显示最紧的一段"
+        }
     }
 
     private func makeItem(_ title: String, _ sel: Selector) -> NSMenuItem {
@@ -272,14 +280,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         rebuildMenu()
     }
     @objc private func toggleStripMode() {
-        MenuBarStripPanel.setEnabled(!MenuBarStripPanel.enabled)
-        stripModeChanged()
+        settings.enabled = !settings.enabled
+        refreshStripTitle()
         rebuildMenu()
     }
-    @objc private func pickStripScreen(_ sender: NSMenuItem) {
-        let uuid = sender.representedObject as? String
-        MenuBarStripPanel.setScreenUUID(uuid?.isEmpty == false ? uuid : nil)
-        stripScreenChanged()
+    @objc private func pickStripLevel(_ sender: NSMenuItem) {
+        settings.level = StripLevel(rawValue: sender.tag) ?? .full
+        refreshStripTitle()
         rebuildMenu()
     }
     @objc private func reinstallAction() { reinstall() }

@@ -8,11 +8,6 @@ final class WeakPanelRef {
 }
 
 @MainActor
-final class WeakStripRef {
-    weak var panel: MenuBarStripPanel?
-}
-
-@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 额度存档跨重启保活（同窗口内用量只增不减，重启不该把高水位丢掉）
     let store = StateStore(defaults: .standard)
@@ -21,10 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let burnoutAlert = BurnoutAlertController()
     var server: EventServer?
     var panel: HUDPanel?
-    var stripPanel: MenuBarStripPanel?
     var statusItem: StatusItemController?
     var updateController: UpdateController?
     var livenessTimer: Timer?
+    /// 菜单栏标题的分钟心跳。锚点与额度卡片的 TimelineView 一致（QuotaClock.minuteAnchor），
+    /// 保证两处显示不会错开一分钟。
+    private var stripTimer: Timer?
     var scanTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private let hoverState = HoverState()
@@ -156,17 +153,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelRef.panel = panel
         self.panel = panel
 
-        // 3.5 菜单栏额度条：与浮窗互斥，由菜单「菜单栏额度条」开关决定谁上屏（见 applyStripMode）。
-        // 全窗穿透、不吃鼠标，所以不进悬停监视器。
-        let stripRef = WeakStripRef()
-        let stripMetrics = StripMetrics()
-        let strip = MenuBarStripView(
-            store: store,
-            metrics: stripMetrics,
-            onWidthChange: { w in stripRef.panel?.applyContentWidth(w) })
-        let stripPanel = MenuBarStripPanel(rootView: strip, metrics: stripMetrics)
-        stripRef.panel = stripPanel
-        self.stripPanel = stripPanel
         installHoverMonitor(panelRef: panelRef)
 
         // 4. 菜单栏(更新控制器先建——菜单要渲染更新状态)
@@ -216,9 +202,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // 设计稿示例：剩 8% · 25min 见底 · 距重置 4h52m → 断档 4h27m（重度）
                 self?.burnoutAlert.present(remainingPct: 8, dropMinutes: 267, timeLeft: 292 * 60)
             },
-            stripModeChanged: { [weak self] in self?.applyStripMode() },
-            stripScreenChanged: { [weak self] in self?.stripPanel?.applyScreenSelection() })
-        applyStripMode()
+            stripRuns: { [weak self] level in
+                // 显式 self.store —— 本函数后面有个局部 `let store = self.store`，
+                // 裸写 store 会被解析成那个还没声明的局部量
+                guard let self else { return [] }
+                return StripContent.runs(account: self.store.account,
+                                         todayTokens: self.store.todayTokens ?? 0,
+                                         level: level, now: Date())
+            })
+        // 额度条与会话浮窗不再互斥：额度条只是菜单栏里的一格文字，抢不到浮窗的位置。
+        // 浮窗显隐只走菜单「显示 / 隐藏 HUD」。
+        panel.orderFrontRegardless()
+        // 额度真的变了才重画标题（值没变不触发，见 StateStore.onAccountChanged）
+        self.store.onAccountChanged = { [weak self] in self?.statusItem?.refreshStripTitle() }
+        // 分钟心跳：重置时刻与倒计时随时间走。今日 token 的变化也搭这班车 —— 它变得慢，
+        // 等一分钟无妨。对齐整分钟 :00 起跳，与额度卡片同一个锚点。
+        let nextMinute = Date(timeIntervalSinceReferenceDate:
+            (Date().timeIntervalSinceReferenceDate / 60).rounded(.up) * 60)
+        let heartbeat = Timer(fire: nextMinute, interval: 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.statusItem?.refreshStripTitle() }
+        }
+        RunLoop.main.add(heartbeat, forMode: .common)
+        stripTimer = heartbeat
         if Self.isDevBuild {
             statusItem?.setInstallState(.devMode)
         } else if let serverError {
@@ -296,18 +301,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let productionBundleID = "io.github.shiyaming.cc-hud"
     /// 开发构建判定:非生产 bundle id(swift run 的裸二进制为 nil)即视为开发实例
     static var isDevBuild: Bool { Bundle.main.bundleIdentifier != productionBundleID }
-
-    /// 额度条与浮窗互斥：开 → 只有菜单栏那一行；关 → 只有会话浮窗。
-    /// 条子不吃鼠标，要看会话列表走菜单「显示 / 隐藏 HUD」。
-    private func applyStripMode() {
-        if MenuBarStripPanel.enabled {
-            panel?.orderOut(nil)
-            stripPanel?.setVisible(true)
-        } else {
-            stripPanel?.setVisible(false)
-            panel?.orderFrontRegardless()
-        }
-    }
 
     private func runInstall(force: Bool) {
         if !force && UserDefaults.standard.bool(forKey: Self.uninstalledKey) { return }
