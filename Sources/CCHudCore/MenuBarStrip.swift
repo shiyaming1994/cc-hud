@@ -5,10 +5,12 @@ import Foundation
 /// 纯函数、不碰 AppKit（选屏与窗口枚举留给 app 层）——多屏 / 负坐标 / 刘海避让 / 边界夹取
 /// 这些分支不单测必出事，与 NotchGeometry 同样的可测性考量。
 public enum MenuBarStrip {
-    /// 条子右缘相对状态项**窗口**左缘的偏移（负 = 越过窗口边界）。
-    /// 设计稿要的是"到图标 12pt"，但我们只能量到窗口边界：实测该边界到图标墨迹还有 ~12.5pt
-    /// 内边距，我们自己末字的右侧边距 ~3.5pt，故需越过 4pt 才得到 12pt 的视觉间距——
-    /// 这 4pt 落在图标自己的空白内边距里，不会压到任何图标。
+    /// 条子右缘相对状态项**窗口**左缘的偏移（正 = 留白，负 = 越过窗口边界）。
+    /// 取 0 即右缘与状态项窗口左缘对齐。设计稿要的"到图标 12pt"由两头的自然留白凑出：
+    /// 实测状态项窗口左缘到图标墨迹有 9.5–12.5pt 内边距（随图标而变），我们末字右侧还有
+    /// 2–3.5pt 边距（随字形而变），合起来 11.5–16pt。
+    /// 早先写死过 -4pt 想精确凑够 12pt，但两头都在变、追不准，还可能压到内边距窄的图标，
+    /// 故改成窗口边缘对齐（见 testDefaultGapAlignsToStatusItemWindowEdge）。
     public static let iconGap: CGFloat = 0
 
     /// CGWindowList 坐标（左上原点、y 向下、原点在主屏左上）→ NSScreen 坐标（左下原点、y 向上）。
@@ -26,6 +28,19 @@ public enum MenuBarStrip {
         let left = max(bar.minX, notch?.maxX ?? bar.minX)
         let right = (statusItemsMinX ?? bar.maxX) - gap
         return max(0, right - left)
+    }
+
+    /// 一行文本的**渲染真宽**。SwiftUI 把每段 Text 的宽度向上取整到整点、整行再取整一次，
+    /// 所以拿 NSAttributedString 逐段精确求和会少算 2–3pt。少算不只是"差几个点"：
+    /// NSHostingView 会用 Auto Layout 把窗口按真实渲染宽度**向右撑开**（右对齐的窗口右缘因此
+    /// 越过状态项左缘，实测越出 2–3pt）；同一个值还喂给 fittingVariant 选档，刘海屏预算只有
+    /// 86pt 时会选中实际放不下的一档。宁可多算也不能少算。
+    /// 2026-09-02 用 14 个真实字串对比「NSAttributedString.size() 向上取整」与
+    /// 「NSHostingView(Text(…)).fittingSize」，14/14 精确吻合，五个降级档位也逐档吻合。
+    /// - runs: 各段文本的精确度量宽（NSAttributedString.size().width）
+    /// - gaps: 段间固定间距之和（设计稿数值，不参与逐段取整）
+    public static func renderWidth(runs: [CGFloat], gaps: CGFloat) -> CGFloat {
+        (runs.reduce(gaps) { $0 + $1.rounded(.up) }).rounded(.up)
     }
 
     /// 从"最全"到"最简"排好的各档宽度里，选第一个塞得下的；连最简的都塞不下返回 nil（整条不上屏）。

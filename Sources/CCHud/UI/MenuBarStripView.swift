@@ -225,15 +225,21 @@ private enum Spec {
         return (f.capHeight - f.ascender - f.descender) / 2
     }()
 
+    /// 整行宽度。必须走 MenuBarStrip.renderWidth 而不是逐段精确求和 —— SwiftUI 逐段把 Text
+    /// 的宽度向上取整，精确求和会少算 2–3pt，窗口随后被 NSHostingView 的 Auto Layout
+    /// 向右撑开、右缘压过状态项左缘（见 renderWidth 的注释）。
     static func width(_ els: [MenuBarStripView.Element]) -> CGFloat {
-        els.reduce(0) { acc, el in
+        var gaps: CGFloat = 0
+        var runs: [CGFloat] = []
+        for el in els {
             switch el {
-            case .gap(let w): return acc + w
+            case .gap(let w): gaps += w
             case .text(let s, let weight, let kern, _, _):
-                return acc + NSAttributedString(
-                    string: s, attributes: [.font: font(weight), .kern: kern]).size().width
+                runs.append(NSAttributedString(
+                    string: s, attributes: [.font: font(weight), .kern: kern]).size().width)
             }
         }
+        return MenuBarStrip.renderWidth(runs: runs, gaps: gaps)
     }
 
     static func key(_ els: [MenuBarStripView.Element]) -> String {

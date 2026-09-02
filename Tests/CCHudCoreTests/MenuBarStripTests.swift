@@ -125,6 +125,39 @@ final class MenuBarStripTests: XCTestCase {
         XCTAssertEqual(f.minX, 0)
     }
 
+    // MARK: 渲染真宽（SwiftUI 逐段把 Text 宽度向上取整到整点）
+    //
+    // NSAttributedString 逐段求和会**少算**：SwiftUI 把每个 Text 的宽度向上取整到整点、
+    // 最后整行再取整一次。少算的后果不是"差几个点"这么轻——NSHostingView 会用 Auto Layout
+    // 把窗口按真实渲染宽度**向右撑开**，于是条子右缘越过状态项左缘（实测越出 2–3pt）。
+    // 2026-09-02 用 14 个真实字串逐段对比 NSAttributedString.size() 向上取整 vs
+    // NSHostingView(Text(…)).fittingSize，14/14 精确吻合。
+
+    func testRenderWidthRoundsEachTextRunUpToWholePoints() {
+        // 最简档「5H 68%」实测：三段 17.628 / 15.748 / 11.942，间距 4 + 1.5
+        // 朴素求和 = 50.818（会少算），逐段取整 18+16+12 = 46，+5.5 → 51.5 → 整行取整 52
+        // NSHostingView 实测正是 52
+        XCTAssertEqual(MenuBarStrip.renderWidth(runs: [17.628, 15.748, 11.942], gaps: 5.5), 52)
+    }
+
+    func testRenderWidthOfFullRowMatchesMeasuredRender() {
+        // 全档「5H 68% 14:50  7D 96%  59M」实测各段宽 + 间距合计 42
+        // 朴素求和 191.39（这正是线上上报的值），真实渲染 196
+        let runs: [CGFloat] = [17.628, 15.748, 11.942, 34.297, 17.351, 15.117, 11.104, 26.205]
+        XCTAssertEqual(MenuBarStrip.renderWidth(runs: runs, gaps: 42), 196)
+    }
+
+    func testRenderWidthNeverUnderestimatesNaiveSum() {
+        // 不变量：宁可多算也不能少算——少算就会被 Auto Layout 向右撑出去压到状态项
+        let runs: [CGFloat] = [17.628, 15.748, 11.942, 34.297]
+        XCTAssertGreaterThanOrEqual(MenuBarStrip.renderWidth(runs: runs, gaps: 10.5),
+                                    runs.reduce(10.5, +))
+    }
+
+    func testRenderWidthOfEmptyRowIsZero() {
+        XCTAssertEqual(MenuBarStrip.renderWidth(runs: [], gaps: 0), 0)
+    }
+
     // MARK: 目标屏选择
 
     func testPrefersSavedScreenWhenPresent() {
