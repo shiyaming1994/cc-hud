@@ -191,12 +191,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(makeItem("退出", #selector(quit)))
     }
 
-    /// 常驻显示器子菜单：自动（主屏）+ 在场各屏。同名显示器按 x 从左到右加方位后缀
+    /// 常驻显示器子菜单：自动 + 在场各屏。同名显示器按 x 从左到右加方位后缀
     /// （本机就是两台同名 T2752U）；存档屏不在场时补一行灰字说明，免得用户以为设置丢了。
+    /// 「自动」的实际规则见 MenuBarStrip.preferredScreenIndex —— 文案必须跟它一致。
     private func buildScreenMenu() -> NSMenu {
         let m = NSMenu()
         let saved = MenuBarStripPanel.savedScreenUUID
-        let auto = NSMenuItem(title: "自动（主屏）", action: #selector(pickStripScreen(_:)), keyEquivalent: "")
+        let auto = NSMenuItem(title: "自动（优先无刘海的屏）", action: #selector(pickStripScreen(_:)),
+                              keyEquivalent: "")
+        auto.toolTip = "有外接屏时落最靠左的那块;只剩内置刘海屏时才用它(刘海屏菜单栏空隙小,内容会降级)"
         auto.target = self
         auto.representedObject = ""
         auto.state = saved == nil ? .on : .off
@@ -215,10 +218,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             m.addItem(mi)
         }
         if let saved, !sawSaved {
-            let miss = NSMenuItem(title: "上次选择的显示器未连接 · 暂落主屏", action: nil, keyEquivalent: "")
+            let miss = NSMenuItem(title: "上次选择的显示器未连接 · 暂按「自动」落位", action: nil,
+                                  keyEquivalent: "")
             miss.isEnabled = false
             miss.state = .on
             miss.toolTip = "存档没有被覆盖,那块屏一插回来条子就自己回去（UUID \(saved)）"
+
             m.addItem(.separator())
             m.addItem(miss)
         }

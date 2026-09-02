@@ -17,9 +17,20 @@ public enum DebugLog {
         _ = line.withCString { write(fd, $0, strlen($0)) }
     }
 
-    /// 解码失败的原始报文落盘（同一开关），返回落盘路径
-    public static func dump(_ data: Data, label: String) {
+    /// 每个 label 上次落盘的时刻。EventServer 的解码全在同一条串行队列上跑（cc-hud.event-server），
+    /// 这里只被它调用，故不加锁；nonisolated(unsafe) 是对这个前提的显式声明。
+    nonisolated(unsafe) private static var lastDumpAt: [String: Date] = [:]
+
+    /// 原始报文落盘（同一开关）。
+    /// - minInterval: 同一 label 的最小落盘间隔，挂在高频事件上时必须给（status 事件实测
+    ///   可达 2 条/300ms，不限速的话调试开关忘关就会在 /tmp 堆出成千上万个碎文件）。
+    public static func dump(_ data: Data, label: String, minInterval: TimeInterval = 0) {
         guard enabled else { return }
+        if minInterval > 0 {
+            let now = Date()
+            if let last = lastDumpAt[label], now.timeIntervalSince(last) < minInterval { return }
+            lastDumpAt[label] = now
+        }
         let p = "/tmp/cchud-\(label)-\(Int(Date().timeIntervalSince1970 * 1000)).json"
         try? data.write(to: URL(fileURLWithPath: p))
         log("dumped \(label) → \(p) (\(data.count)B)")

@@ -13,6 +13,8 @@ final class MenuBarStripPanel: NSPanel {
     /// 沿用刘海岛时代的 key：已经把岛打开的用户升级后直接得到条子，不用再去菜单里点一次
     static let enabledKey = "hud.notchIsland"
     static let screenKey = "hud.menuBarStrip.screen"
+    /// 系统「自动隐藏菜单栏」开关（NSGlobalDomain）。standard 的搜索链含全局域，直接读得到。
+    static var autoHideMenuBar: Bool { UserDefaults.standard.bool(forKey: "_HIHideMenuBar") }
 
     /// 内容自然宽度（SwiftUI 侧 .fixedSize() 后实测回灌）
     private var contentWidth: CGFloat = 240
@@ -20,6 +22,9 @@ final class MenuBarStripPanel: NSPanel {
     private var wantsVisible = false
     /// 视图侧的可用宽度预算（内容按它降级）；与窗口落位同源刷新
     let metrics: StripMetrics
+    /// 每屏"菜单栏预留高度"的历史最大值（屏 UUID → pt）：当前值掉到 0 即该屏被全屏 App 占了。
+    /// 主屏恒有菜单栏，基线用系统厚度打底，免得"启动时该屏已在全屏"学不到基线。
+    private var baselineInset: [String: CGFloat] = [:]
     private var settleTask: Task<Void, Never>?
     private var pollTimer: Timer?
 
@@ -118,7 +123,7 @@ final class MenuBarStripPanel: NSPanel {
     @objc private func refreshNow() { refresh() }
 
     private func refresh(animated: Bool = true) {
-        guard wantsVisible, contentWidth > 1, let screen = targetScreen() else {
+        guard wantsVisible, let screen = targetScreen() else {
             if isVisible { orderOut(nil) }
             return
         }
@@ -127,11 +132,27 @@ final class MenuBarStripPanel: NSPanel {
                                             safeAreaTop: screen.safeAreaInsets.top,
                                             auxLeft: screen.auxiliaryTopLeftArea,
                                             auxRight: screen.auxiliaryTopRightArea)
-        // 预算先回灌：视图据此选档 → 新宽度经 applyContentWidth 回来，不会成环
-        // （预算只取决于菜单栏几何，与内容宽度无关）
+        // 预算无条件回灌，必须在任何提前 return 之前：视图据此选档，一旦因"隐藏"跳过回灌，
+        // 视图会停在"一档都放不下"的 0 宽度上，而 0 宽度又让本函数继续提前 return，
+        // 两边互锁、条子再也回不来（2026-09-02 全屏退出后不复现的那次回归）。
+        // 预算只取决于菜单栏几何、与内容宽度无关，所以回灌不会成环。
         let b = MenuBarStrip.budget(bar: layout.bar, statusItemsMinX: layout.statusItemsMinX,
                                     notch: notch)
         if abs(metrics.budget - b) > 0.5 { metrics.budget = b }
+
+        // 菜单栏藏起来时（系统自动隐藏 / 该屏被全屏 App 占据）条子一并撤下，
+        // 否则它会长期悬在用户内容之上（见 MenuBarStrip.menuBarVisible）
+        let inset = screen.frame.maxY - screen.visibleFrame.maxY
+        let key = screen.displayUUID ?? "\(screen.frame)"
+        let seed: CGFloat = screen.frame.origin == .zero ? NSStatusBar.system.thickness : 0
+        let baseline = max(baselineInset[key] ?? seed, inset)
+        baselineInset[key] = baseline
+        let visible = MenuBarStrip.menuBarVisible(autoHideEnabled: Self.autoHideMenuBar,
+                                                  topInset: inset, baselineInset: baseline)
+        guard visible, contentWidth > 1 else {
+            if isVisible { orderOut(nil) }
+            return
+        }
         let f = MenuBarStrip.frame(bar: layout.bar, statusItemsMinX: layout.statusItemsMinX,
                                    notch: notch, contentWidth: contentWidth)
         place(f, animated: animated)

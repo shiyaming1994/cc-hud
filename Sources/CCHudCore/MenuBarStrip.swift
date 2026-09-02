@@ -60,6 +60,30 @@ public enum MenuBarStrip {
         return plain.min { minX[$0] < minX[$1] } ?? 0
     }
 
+    /// 该屏菜单栏此刻是否可见。不可见时条子必须一并撤下 —— 它是 .statusBar 级窗口，
+    /// 没人挡着，菜单栏一藏它就长期悬在用户内容之上。
+    /// - autoHideEnabled: 系统「自动隐藏菜单栏」(NSGlobalDomain `_HIHideMenuBar`)。开着时
+    ///   菜单栏平时是藏的、只在鼠标顶边时滑出，我们这种独立窗口跟不了滑出动作，一律不显示。
+    /// - topInset / baselineInset: 该屏 `frame.maxY - visibleFrame.maxY` 的当前值与历史最大值。
+    ///   曾经预留过菜单栏空间的屏(主屏实测 29)一旦掉到 0，说明被全屏 App 占了。
+    ///   外接屏实测恒为 0（有菜单栏也不内缩），故 baseline 为 0 时本判据失效、按可见处理。
+    ///
+    /// **全屏 App 占据该屏这一情形目前检测不了**，条子会照常悬在全屏画面顶端。
+    /// 2026-09-02 试过并证伪的四条路，别再重走：
+    ///   1. layer-24 的 Window Server「Menubar」窗口 —— 全屏前/中/后都在场且 on-screen；
+    ///   2. `frame.maxY - visibleFrame.maxY` —— 全屏时 Dock 那段让出来了，菜单栏那 29pt 照旧保留；
+    ///   3. 枚举 layer-0 中与屏等大的窗口 —— 跨进程枚举里根本看不到全屏窗口；
+    ///   4. 去掉 `.fullScreenAuxiliary` —— 无效，是 `.canJoinAllSpaces` 把窗口带进全屏空间的，
+    ///      而去掉它条子就不跟随 Space 切换了，代价更大。
+    /// 唯一变化的信号是"铺满该屏的桌面层窗口"(壁纸 / 访达桌面)会消失，但它的 layer 是
+    /// INT32_MIN+23 这类魔数、数量还随「桌面显示图标」「台前调度」变，误判的代价是
+    /// 条子无缘无故消失，比压在全屏画面上更糟，故不采用。
+    public static func menuBarVisible(autoHideEnabled: Bool, topInset: CGFloat,
+                                      baselineInset: CGFloat) -> Bool {
+        if autoHideEnabled { return false }
+        return !(baselineInset > 1 && topInset <= 1)
+    }
+
     /// 枚举不到 layer-24 菜单栏窗口时的兜底矩形：顶部内缩量推得出就用它（主屏会把菜单栏
     /// 从 visibleFrame 里扣掉），推不出就用系统菜单栏厚度（实测外接屏 visibleFrame == frame，
     /// 顶部什么都不扣）。宁可条子落在一个估出来的位置，也不能整条消失。

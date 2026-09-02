@@ -183,6 +183,33 @@ final class MenuBarStripTests: XCTestCase {
         XCTAssertEqual(bar, CGRect(x: 783, y: 2023, width: 1920, height: 24))
     }
 
+    // MARK: 菜单栏可见性（不可见时条子必须一并撤下）
+
+    func testHiddenWhenSystemAutoHideMenuBarIsOn() {
+        // 自动隐藏时菜单栏只在鼠标顶边时滑出，独立窗口跟不了这个滑出动作 → 一律不显示，
+        // 否则它会长期悬在用户内容之上
+        XCTAssertFalse(MenuBarStrip.menuBarVisible(autoHideEnabled: true, topInset: 29,
+                                                   baselineInset: 29))
+    }
+
+    func testHiddenWhenScreenStoppedReservingMenuBarSpace() {
+        // 主屏实测常态内缩 29；变成 0 说明被全屏 App 占了
+        XCTAssertFalse(MenuBarStrip.menuBarVisible(autoHideEnabled: false, topInset: 0,
+                                                   baselineInset: 29))
+    }
+
+    func testVisibleWhenScreenStillReservesSpace() {
+        XCTAssertTrue(MenuBarStrip.menuBarVisible(autoHideEnabled: false, topInset: 29,
+                                                  baselineInset: 29))
+    }
+
+    func testVisibleOnScreensThatNeverReserveSpace() {
+        // 外接屏实测 visibleFrame == frame（有菜单栏也不内缩）→ 这条判据失效，按可见处理，
+        // 不能因为"内缩为 0"就把外接屏上的条子撤掉
+        XCTAssertTrue(MenuBarStrip.menuBarVisible(autoHideEnabled: false, topInset: 0,
+                                                  baselineInset: 0))
+    }
+
     // MARK: 7D 重置展示判据（剩余 <20% 或 距重置 <24h）
 
     private let now = Date(timeIntervalSince1970: 1_700_000_000)

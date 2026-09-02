@@ -334,8 +334,10 @@ public final class StateStore {
                           pendingLow: &fivePendingLow)
         Self.absorbWindow(rl.sevenDay, pct: &acc.sevenDayUsedPct, resetAt: &acc.sevenDayResetsAt,
                           pendingLow: &sevenPendingLow)
+        let changed = acc != account
         account = acc
-        defaults?.set(acc.archive, forKey: Self.accountKey)
+        // status 事件可达每秒数条，值没变就别写（UserDefaults 写入会惊动 cfprefsd）
+        if changed { defaults?.set(acc.archive, forKey: Self.accountKey) }
         checkBurnout(now)
     }
 
