@@ -2,7 +2,8 @@ import SwiftUI
 import CCHudCore
 
 /// 额度卡片的尺寸表。非紧凑档 = 设计稿 standalone(1).html 600pt 的 0.5×。
-/// 原属 AccountFooterView 私有 Metrics，抽出供刘海岛复用；数值一字未改。
+/// 原属 AccountFooterView 私有 Metrics，抽出后由最小胶囊（PillListView 传 compact: true）
+/// 与页脚共用；数值一字未改。
 struct QuotaMetrics {
     // outerTop 与 outerBottom 不等是有意的：页脚下方还叠着档容器的 6pt 内边距（PillList/Expanded 的 .padding），
     // 故 顶隙=outerTop、底隙=outerBottom+6；取 7 / 1 → 两侧实际留白都是 7pt，静息条上下等距（对齐原型）。

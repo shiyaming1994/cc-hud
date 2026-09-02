@@ -185,7 +185,8 @@ extension NSRect {
 
 /// 窗口向宿主视图声明「可见内容矩形」（窗口内容坐标系，左上原点、y 向下）：
 /// 该矩形之外是透明预留区，点击必须穿透到下方窗口。
-/// 浮窗只需按高度裁（矩形宽 = 整窗），刘海岛还要按宽度裁（静息岛比窗口窄）。
+/// 浮窗只需按高度裁（矩形宽 = 整窗）；留成矩形而非单个高度，是为了将来若有比窗口窄的
+/// 可见区还能用同一套判据（刘海岛曾是这样，已删）。
 @MainActor
 protocol VisibleContentProviding: AnyObject {
     var visibleContentRect: CGRect { get }
