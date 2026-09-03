@@ -152,6 +152,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hoverState = hoverState
         panelRef.panel = panel
         self.panel = panel
+        // 会话浮窗按存档恢复显隐。默认仍是隐藏（key 未设 = false）——菜单栏那行额度已经够看，
+        // 浮窗是"要看会话列表时才叫出来"的东西，不该一装上就占屏；但用户那一次点击要记住：
+        // 进程重启不全是用户发起的（「登录时启动」自己拉起、自动更新 scheduleRelaunch 自己重启），
+        // 不记就等于替用户把窗关了，而这个 app 是 LSUIElement，叫回来的唯一入口是菜单栏那一格。
+        panel.restoreVisibility()
 
         installHoverMonitor(panelRef: panelRef)
 
@@ -160,10 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.updateController = updateController
         statusItem = StatusItemController(
             updateController: updateController,
-            togglePanel: { [weak self] in
-                guard let p = self?.panel else { return }
-                p.isVisible ? p.orderOut(nil) : p.orderFrontRegardless()
-            },
+            togglePanel: { [weak self] in self?.panel?.toggleVisible() },
             reinstall: { [weak self] in self?.runInstall(force: true) },
             uninstall: { [weak self] in
                 guard let self else { return }
@@ -210,9 +212,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                          todayTokens: self.store.todayTokens ?? 0,
                                          level: level, now: Date())
             })
-        // 会话浮窗默认隐藏：菜单栏那行额度已经能一眼看到额度，浮窗是"要看会话列表时才叫出来"
-        // 的东西，不该一启动就占屏。要看走菜单「显示 / 隐藏 HUD」。
-        // （额度条与浮窗不再互斥 —— 额度条只是菜单栏里的一格文字，抢不到浮窗的位置。）
+        // （额度条与浮窗不再互斥 —— 额度条只是菜单栏里的一格文字，抢不到浮窗的位置。
+        //   浮窗的显隐见上面 panel.restoreVisibility()。）
         // 额度真的变了才重画标题（值没变不触发，见 StateStore.onAccountChanged）
         self.store.onAccountChanged = { [weak self] in self?.statusItem?.refreshStripTitle() }
         // 分钟心跳：重置时刻与倒计时随时间走。今日 token 的变化也搭这班车 —— 它变得慢，

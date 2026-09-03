@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CCHudCore
 
 /// 非激活浮窗：点击不抢终端焦点，所有 Space + 全屏可见。
 /// 位置以"用户拖放的右上角锚点"为唯一真相，按【所在屏 UUID + 屏内偏移】持久化——
@@ -10,6 +11,8 @@ final class HUDPanel: NSPanel {
     private static let anchorKey = "hud.anchor.v2"             // {screen: 显示器 UUID, dx/dy: 相对屏 origin 的右上锚点}
     private static let legacyAnchorKey = "hud.anchorTopRight"  // v1 全局绝对坐标，读到即迁移
     private var programmaticMove = false
+    /// 显隐存档。走 CCHudCore 是为了让「默认隐藏 + 记住用户那次点击」这两条有单测兜着。
+    private let visibility = PanelSettings(defaults: .standard)
     private var settleTask: Task<Void, Never>?
     /// 悬停态由 AppDelegate 的鼠标监视器经此写入（用可见玻璃 frame 命中判定，不依赖会被内容缩放扰动的 tracking area）。
     weak var hoverState: HoverState?
@@ -77,6 +80,20 @@ final class HUDPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// 显隐的唯一入口：上/下屏与落存档绑在一起，免得再出现「用户点了却没记下来」。
+    func setVisible(_ visible: Bool) {
+        if visible { orderFrontRegardless() } else { orderOut(nil) }
+        visibility.visible = visible
+    }
+
+    /// 菜单「显示 / 隐藏 HUD」
+    func toggleVisible() { setVisible(!isVisible) }
+
+    /// 启动时按存档恢复。存档为假就什么都不做 —— 不回写，省得每次启动都惊动 cfprefsd。
+    func restoreVisibility() {
+        if visibility.visible { orderFrontRegardless() }
+    }
 
     /// 悬停判定入口（AppDelegate 的鼠标监视器在每次鼠标移动时调用，传入屏幕坐标）。
     /// 命中区 = 顶右锚点向下 `可见玻璃高度` 的矩形（**不含**下方透明预留区，故在空白处不会误触发）；
