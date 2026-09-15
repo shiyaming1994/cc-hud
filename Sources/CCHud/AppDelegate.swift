@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: StatusItemController?
     var updateController: UpdateController?
     var livenessTimer: Timer?
+    /// 多显示器窗口位置恢复（事件驱动，无定时器）
+    let layoutKeeper = LayoutKeeper()
     /// 菜单栏标题的分钟心跳。锚点与额度卡片的 TimelineView 一致（QuotaClock.minuteAnchor），
     /// 保证两处显示不会错开一分钟。
     private var stripTimer: Timer?
@@ -211,7 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return StripContent.runs(account: self.store.account,
                                          todayTokens: self.store.todayTokens ?? 0,
                                          level: level, now: Date())
-            })
+            },
+            refreshLayoutKeeper: { [weak self] in self?.layoutKeeper.refreshObservers() })
         // （额度条与浮窗不再互斥 —— 额度条只是菜单栏里的一格文字，抢不到浮窗的位置。
         //   浮窗的显隐见上面 panel.restoreVisibility()。）
         // 额度真的变了才重画标题（值没变不触发，见 StateStore.onAccountChanged）
@@ -245,6 +248,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         livenessTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.syncProcessesNow() }
         }
+
+        // 5b. 窗口位置恢复：宿主 App 由会话进程的祖先链算出（同 TerminalFocus 的口径）。
+        //     观察者的补挂搭 5s 存活检查的车，不新增定时器。
+        layoutKeeper.hostApps = { [weak self] in
+            guard let self else { return [] }
+            var seen = Set<pid_t>()
+            var apps: [NSRunningApplication] = []
+            for s in self.store.sessions.values {
+                guard let pid = s.claudePid else { continue }
+                for p in ProcessScanner.ancestors(of: pid) {
+                    guard let app = NSRunningApplication(processIdentifier: p),
+                          app.activationPolicy == .regular else { continue }
+                    if seen.insert(app.processIdentifier).inserted { apps.append(app) }
+                    break
+                }
+            }
+            return apps
+        }
+        layoutKeeper.start()
 
         // 6. 今日 token 扫描（启动即扫一次，之后 60s；detached 任务在后台线程扫，主 actor 写回）
         let scanner = DailyTokenScanner(projectsDir: claudeDir.appendingPathComponent("projects"))
@@ -295,9 +317,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func syncProcessesNow() {
         let store = self.store
+        let keeper = self.layoutKeeper   // @MainActor 类型本身 Sendable，同 store 的捕获方式
         Task.detached(priority: .utility) {
             let procs = ProcessScanner.scan()
-            await MainActor.run { store.syncProcesses(procs) }
+            await MainActor.run {
+                store.syncProcesses(procs)
+                // 会话表刚更新完：终端 App 重启 / 新开会话换了终端，在这里补挂观察者。
+                // 纯集合比对，没变化时零 AX 调用。
+                keeper.refreshObservers()
+            }
         }
     }
 

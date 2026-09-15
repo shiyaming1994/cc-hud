@@ -25,6 +25,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let previewBurnout: () -> Void
     /// 按档位产出额度条内容（由 AppDelegate 提供，读 store）
     private let stripRuns: @MainActor (StripLevel) -> [StripRun]
+    /// 开启「记住窗口位置」后立刻补挂 AX 观察者（否则要等下一次 5s 存活检查）
+    private let refreshLayoutKeeper: () -> Void
     private let settings = StripSettings(defaults: .standard)
     /// 没有额度可显示时的兜底图标 —— 状态项不能完全空，否则点不到菜单
     private static let fallbackIcon = NSImage(systemSymbolName: "rectangle.stack.fill",
@@ -39,7 +41,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
          uninstall: @escaping () -> Void, eventStatus: @escaping () -> String,
          previewAnimation: @escaping (String) -> Void,
          previewBurnout: @escaping () -> Void,
-         stripRuns: @escaping @MainActor (StripLevel) -> [StripRun]) {
+         stripRuns: @escaping @MainActor (StripLevel) -> [StripRun],
+         refreshLayoutKeeper: @escaping () -> Void) {
         self.updateController = updateController
         self.togglePanel = togglePanel
         self.reinstall = reinstall
@@ -48,6 +51,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.previewAnimation = previewAnimation
         self.previewBurnout = previewBurnout
         self.stripRuns = stripRuns
+        self.refreshLayoutKeeper = refreshLayoutKeeper
         // 变宽：宽度由系统按标题量（额度条关掉时标题为空，退回图标那么宽）。
         // 图标不无条件挂 —— 有额度可显示时只显示文字，见 refreshStripTitle。
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -186,6 +190,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let focusItem = makeItem("焦点会话不提示", #selector(toggleFocusSuppress))
         focusItem.state = TerminalFocus.suppressEnabled ? .on : .off
         menu.addItem(focusItem)
+        let layoutItem = makeItem("记住窗口位置（多显示器）", #selector(toggleLayoutRestore))
+        layoutItem.state = LayoutKeeper.enabled ? .on : .off
+        layoutItem.toolTip = "外接屏拔掉后窗口会被系统搬到主屏；重新接上时按拔掉前的位置摆回去。需辅助功能授权。"
+        menu.addItem(layoutItem)
         let burnoutItem = makeItem("额度燃尽预警", #selector(toggleBurnout))
         burnoutItem.state = BurnoutAlertController.enabled ? .on : .off
         menu.addItem(burnoutItem)
@@ -198,6 +206,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let ev = NSMenuItem(title: eventStatus(), action: nil, keyEquivalent: "")
         ev.isEnabled = false
         diag.addItem(ev)
+        // 窗口恢复失败是静默的（窗口没回去 = 和没装一样），这行是用户唯一的判据
+        let lr = NSMenuItem(title: Self.lastRestoreTitle(), action: nil, keyEquivalent: "")
+        lr.isEnabled = false
+        diag.addItem(lr)
         let axOK = AXIsProcessTrusted()
         diag.addItem(makeItem(axOK ? "辅助功能：已授权 ✓" : "授权辅助功能（Ghostty 跳转）…",
                               #selector(openAccessibilitySettings)))
@@ -240,6 +252,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return m
     }
 
+    private static func lastRestoreTitle() -> String {
+        guard LayoutKeeper.enabled else { return "窗口位置恢复：已关闭" }
+        guard let r = LayoutKeeper.lastRestore else { return "窗口位置恢复：本次启动后还没恢复过" }
+        let f = DateFormatter()
+        f.dateFormat = "M月d日 HH:mm"
+        return "窗口位置恢复：\(f.string(from: r.at)) · 搬动 \(r.moved) / 命中 \(r.matched) 个窗口"
+    }
+
     private static func levelFallbackTitle(_ level: StripLevel) -> String {
         switch level {
         case .full:             return "5H + 7D + 今日 token"
@@ -266,6 +286,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
     @objc private func toggleFocusSuppress() {
         TerminalFocus.setSuppress(!TerminalFocus.suppressEnabled)
+        rebuildMenu()
+    }
+    @objc private func toggleLayoutRestore() {
+        LayoutKeeper.setEnabled(!LayoutKeeper.enabled)
+        if LayoutKeeper.enabled { refreshLayoutKeeper() }
         rebuildMenu()
     }
     @objc private func toggleBurnout() {
