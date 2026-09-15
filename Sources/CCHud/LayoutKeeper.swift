@@ -58,6 +58,8 @@ final class LayoutKeeper {
     private var observers: [pid_t: AXObserver] = [:]
     /// 闸门关着时一律不写档案 —— 拔插那几秒系统正在搬窗，记下来的全是坏位置
     private var gateOpen = true
+    /// 闸门期间发生过窗口变动。开闸时补捕获一次，用户就不必"等 5 秒再拖"
+    private var pendingCapture = false
     private var captureTask: Task<Void, Never>?
     private var settleTask: Task<Void, Never>?
 
@@ -115,7 +117,14 @@ final class LayoutKeeper {
 
     /// AX 回调入口（已在主线程）。只做节流，不读属性。
     func windowChanged() {
-        guard Self.enabled, gateOpen else { return }
+        guard Self.enabled else { return }
+        // 闸门关着不等于这次拖动不算数 —— 只是"此刻读到的位置不作数"（系统正在搬窗）。
+        // 记一笔，开闸时补捕获：那时配置已稳定，读到的就是用户摆好的最终位置。
+        // 直接丢弃的话，用户拔线后立刻调整窗口那一下会白做（他不会再去动第二遍）。
+        guard gateOpen else {
+            pendingCapture = true
+            return
+        }
         captureTask?.cancel()
         captureTask = Task { [weak self] in
             try? await Task.sleep(for: Self.dragSettle)
@@ -158,6 +167,10 @@ final class LayoutKeeper {
             try? await Task.sleep(for: Self.gateReopen)
             guard !Task.isCancelled else { return }
             self.gateOpen = true
+            if self.pendingCapture {
+                self.pendingCapture = false
+                self.capture()
+            }
         }
     }
 
