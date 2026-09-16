@@ -247,7 +247,10 @@ final class LayoutKeeper {
                 continue
             }
             for w in wins {
+                // subrole 不可省：Ghostty 的提示气泡之类 role 也报 AXWindow，
+                // 只按 role 过滤会把 436x31 / 84x77 这种东西记进档案（实测一天堆了 30 多条）。
                 guard Self.string(w, kAXRoleAttribute) == kAXWindowRole,
+                      Self.string(w, kAXSubroleAttribute) == kAXStandardWindowSubrole,
                       Self.bool(w, "AXFullScreen") != true,
                       Self.bool(w, kAXMinimizedAttribute) != true else { continue }
                 out.append(("\(pid):\(CFHash(w))", w))

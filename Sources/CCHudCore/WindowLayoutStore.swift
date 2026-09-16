@@ -39,7 +39,10 @@ public struct WindowLayout: Equatable, Sendable, Codable {
 ///
 /// 白捡的好处：公司双屏、家里单屏、纯笔记本各记各的，互不干扰。
 public struct WindowLayoutStore {
-    public static let archiveKey = "layout.archive.v1"
+    /// v2：v1 的过滤只看 kAXRole,而 Ghostty 的提示气泡之类自称也是 AXWindow,
+    /// 一天就在档案里堆了 30 多条 436x31 / 84x77 的垃圾。改用 subrole 过滤后旧档案
+    /// 已无意义,换键直接丢弃 —— 真窗口在下一次捕获(挂观察者时即刻发生)就重新记上。
+    public static let archiveKey = "layout.archive.v2"
 
     private var buckets: [String: [String: WindowLayout]] = [:]
 
