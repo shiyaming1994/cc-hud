@@ -42,6 +42,10 @@ final class LayoutKeeper {
     /// 恢复后闸门续关：实测我们自己写位置也会触发通知，延迟 +146~193ms。
     /// 不续关的话，恢复动作会立刻触发一次捕获。
     private static let gateReopen = Duration.milliseconds(500)
+    /// AX 就绪重试。隔夜插线实测：连续两次恢复都是「在场 0」（跨了 3.7 秒），
+    /// 0.6 秒后的捕获却看见了 2 个窗口 —— 终端进程刚从睡眠里醒来，一时答不上 AX 查询。
+    private static let readyRetryDelay = Duration.seconds(1)
+    private static let readyRetries = 15
 
     /// 当前承载 Claude 会话的终端 App（由 AppDelegate 从 store 算出来）
     var hostApps: () -> [NSRunningApplication] = { [] }
@@ -160,7 +164,18 @@ final class LayoutKeeper {
             try? await Task.sleep(for: Self.screenSettle)
             guard !Task.isCancelled, let self else { return }
             self.refreshObservers()   // 期间终端 App 可能重启过
-            self.restore()
+            // 看不见窗口就重试，别开闸。唤醒后终端一时答不上 AX 查询，此时的「在场 0」
+            // 不是「没有窗口」而是「还看不见」。这会儿开闸补捕获，等于把「窗口还塌在
+            // 内置屏」这个坏位置写进好桶 —— 隔夜实测就是这么把昨晚的布局盖掉的。
+            var seen = self.restore()
+            var tries = 0
+            while seen == 0, self.hasArchiveNow(), tries < Self.readyRetries {
+                tries += 1
+                try? await Task.sleep(for: Self.readyRetryDelay)
+                guard !Task.isCancelled else { return }
+                seen = self.restore()
+            }
+            if tries > 0 { DebugLog.log("layout: 等 AX 就绪重试 \(tries) 次 → 在场\(seen)") }
             try? await Task.sleep(for: Self.confirmDelay)
             guard !Task.isCancelled else { return }
             self.restore()
@@ -174,16 +189,19 @@ final class LayoutKeeper {
         }
     }
 
-    private func restore() {
-        guard Self.enabled, AXIsProcessTrusted() else { return }
+    /// 返回本次看见的在场窗口数。**0 是个可疑值**：可能真没窗口，也可能是终端刚醒、
+    /// AX 还答不上来。调用方据此决定重试还是开闸 —— 见 screensChanged。
+    @discardableResult
+    private func restore() -> Int {
+        guard Self.enabled, AXIsProcessTrusted() else { return 0 }
         let screens = Self.onlineScreens()
         let fp = WindowLayoutStore.fingerprint(of: screens)
         let archive = store.all(fingerprint: fp)
-        guard !archive.isEmpty else {
-            DebugLog.log("layout: \(fp) 没有存档，不恢复")
-            return
-        }
         let live = trackedWindows()
+        guard !archive.isEmpty else {
+            DebugLog.log("layout: \(fp) 没有存档，不恢复（在场\(live.count)）")
+            return live.count
+        }
         var matched = 0, moved = 0
         for (key, el) in live {
             guard let layout = archive[key] else { continue }
@@ -200,6 +218,7 @@ final class LayoutKeeper {
         // 分母用「在场窗口数」，不用档案条数 —— 档案会累积已关闭窗口的陈旧条目，
         // 拿它当分母读起来像是失败了（实测出现过「恢复 1/4」其实一切正常）。
         DebugLog.log("layout: 恢复 在场\(live.count) 命中\(matched) 搬动\(moved) @ \(fp)")
+        return live.count
     }
 
     // ── 窗口枚举 ──────────────────────────────────────────────
@@ -209,14 +228,24 @@ final class LayoutKeeper {
     /// 角色确为窗口、且没全屏没最小化的——全屏窗口 AX 也搬不动。
     ///
     /// 键 = pid + 元素哈希。引用跨拔插存活（实测），所以同一个窗口在拔插前后键一致。
+    private func hasArchiveNow() -> Bool {
+        !store.all(fingerprint: WindowLayoutStore.fingerprint(of: Self.onlineScreens())).isEmpty
+    }
+
     private func trackedWindows() -> [(String, AXUIElement)] {
         var out: [(String, AXUIElement)] = []
-        for app in liveHosts() {
+        let hosts = liveHosts()
+        if hosts.isEmpty { DebugLog.log("layout: 没有在场宿主 App") }
+        for app in hosts {
             let pid = app.processIdentifier
             var v: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid),
-                                                kAXWindowsAttribute as CFString, &v) == .success,
-                  let wins = v as? [AXUIElement] else { continue }
+            let err = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid),
+                                                    kAXWindowsAttribute as CFString, &v)
+            guard err == .success, let wins = v as? [AXUIElement] else {
+                // 这条是隔夜失败的关键证据来源：分清「真没窗口」和「终端没答上话」
+                DebugLog.log("layout: pid=\(pid) 取窗口列表失败 err=\(err.rawValue)")
+                continue
+            }
             for w in wins {
                 guard Self.string(w, kAXRoleAttribute) == kAXWindowRole,
                       Self.bool(w, "AXFullScreen") != true,
