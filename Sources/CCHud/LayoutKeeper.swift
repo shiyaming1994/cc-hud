@@ -45,7 +45,7 @@ final class LayoutKeeper {
     /// AX 就绪重试。隔夜插线实测：连续两次恢复都是「在场 0」（跨了 3.7 秒），
     /// 0.6 秒后的捕获却看见了 2 个窗口 —— 终端进程刚从睡眠里醒来，一时答不上 AX 查询。
     private static let readyRetryDelay = Duration.seconds(1)
-    private static let readyRetries = 15
+    private static let readyRetries = 30
 
     /// 当前承载 Claude 会话的终端 App（由 AppDelegate 从 store 算出来）
     var hostApps: () -> [NSRunningApplication] = { [] }
@@ -76,8 +76,19 @@ final class LayoutKeeper {
 
     func start() {
         NotificationCenter.default.addObserver(
-            self, selector: #selector(screensChanged),
+            self, selector: #selector(reconfigured(_:)),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        // 唤醒 / 屏幕点亮 / 解锁都要重跑恢复序列。按时间重试治不了隔夜这一场：
+        // 实测插线后 Ghostty 在 AX 里整整 58 秒报告「没有窗口」(宿主在场、查询也成功,
+        // 就是空列表) —— 人还停在锁屏没登录进来,15 秒的重试早跑完了。
+        // 解锁那一刻才是真正该恢复的时机:窗口刚可见,用户还没动过任何东西。
+        let ws = NSWorkspace.shared.notificationCenter
+        for n in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            ws.addObserver(self, selector: #selector(reconfigured(_:)), name: n, object: nil)
+        }
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(reconfigured(_:)),
+            name: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil)
         refreshObservers()   // 首次捕获由它负责（见下）
     }
 
@@ -155,8 +166,9 @@ final class LayoutKeeper {
 
     // ── 恢复侧 ────────────────────────────────────────────────
 
-    @objc private func screensChanged() {
+    @objc private func reconfigured(_ note: Notification) {
         guard Self.enabled else { return }
+        DebugLog.log("layout: 触发恢复序列（\(note.name.rawValue)）")
         gateOpen = false            // 立刻关闸：系统这会儿正在搬窗，捕获到的全是坏位置
         captureTask?.cancel()
         settleTask?.cancel()
@@ -246,6 +258,7 @@ final class LayoutKeeper {
                 DebugLog.log("layout: pid=\(pid) 取窗口列表失败 err=\(err.rawValue)")
                 continue
             }
+            var kept = 0
             for w in wins {
                 // subrole 不可省：Ghostty 的提示气泡之类 role 也报 AXWindow，
                 // 只按 role 过滤会把 436x31 / 84x77 这种东西记进档案（实测一天堆了 30 多条）。
@@ -254,6 +267,12 @@ final class LayoutKeeper {
                       Self.bool(w, "AXFullScreen") != true,
                       Self.bool(w, kAXMinimizedAttribute) != true else { continue }
                 out.append(("\(pid):\(CFHash(w))", w))
+                kept += 1
+            }
+            // 一个都没留下时必须分清是哪种:App 自己报了空列表(锁屏/刚唤醒),
+            // 还是列表有货但被过滤条件吃掉了。原来两者都只表现为「在场 0」。
+            if kept == 0 {
+                DebugLog.log("layout: pid=\(pid) kAXWindows 返回 \(wins.count) 个，过滤后 0 个")
             }
         }
         return out
