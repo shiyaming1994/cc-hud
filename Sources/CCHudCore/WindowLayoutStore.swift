@@ -39,12 +39,19 @@ public struct WindowLayout: Equatable, Sendable, Codable {
 ///
 /// 白捡的好处：公司双屏、家里单屏、纯笔记本各记各的，互不干扰。
 public struct WindowLayoutStore {
-    /// v2：v1 的过滤只看 kAXRole,而 Ghostty 的提示气泡之类自称也是 AXWindow,
-    /// 一天就在档案里堆了 30 多条 436x31 / 84x77 的垃圾。改用 subrole 过滤后旧档案
-    /// 已无意义,换键直接丢弃 —— 真窗口在下一次捕获(挂观察者时即刻发生)就重新记上。
-    public static let archiveKey = "layout.archive.v2"
+    /// v3：条目多了「最后一次见到」的时间戳（见 seen）。存档结构变了，旧档解不出来
+    /// 即丢弃 —— 真窗口在下一次捕获(挂观察者时即刻发生)就重新记上。
+    public static let archiveKey = "layout.archive.v3"
 
     private var buckets: [String: [String: WindowLayout]] = [:]
+    /// 每个窗口最后一次被看见的时刻。**按窗口记而不是按配置记**：窗口一旦关掉，
+    /// 就该从所有显示器配置的档案里一起消失。
+    private var seen: [String: Date] = [:]
+
+    private struct Archive: Codable {
+        var buckets: [String: [String: WindowLayout]]
+        var seen: [String: Date]
+    }
 
     public init() {}
 
@@ -52,17 +59,38 @@ public struct WindowLayoutStore {
     /// 中间十几个小时里没有任何「重新学习」的机会——cc-hud 若在这期间重启过
     /// （手动装更新、崩溃、注销），内存档案一清，第二天就是静默失效。
     /// 坏档案一律退回空：这功能再有用也不能让 app 起不来。
-    public init(loadingFrom defaults: UserDefaults) {
+    public init(loadingFrom defaults: UserDefaults, now: Date = Date()) {
         guard let data = defaults.data(forKey: Self.archiveKey),
-              let decoded = try? JSONDecoder().decode([String: [String: WindowLayout]].self,
-                                                      from: data)
+              let archive = try? JSONDecoder().decode(Archive.self, from: data)
         else { return }
-        buckets = decoded
+        buckets = archive.buckets
+        seen = archive.seen
+        // 缺时间戳的条目按「刚见过」补戳：缺失是未知，不是陈旧。误删一条的代价是
+        // 第二天那个窗口不归位，比多留几条死条目贵得多。
+        for wins in buckets.values {
+            for key in wins.keys where seen[key] == nil { seen[key] = now }
+        }
     }
 
     public func save(to defaults: UserDefaults) {
-        guard let data = try? JSONEncoder().encode(buckets) else { return }
+        guard let data = try? JSONEncoder().encode(Archive(buckets: buckets, seen: seen))
+        else { return }
         defaults.set(data, forKey: Self.archiveKey)
+    }
+
+    /// 清掉 cutoff 之前就没再见过的窗口。关掉的窗口否则会永远赖在档案里：
+    /// record 只增不删，用户开开关关几天就能攒出十几条死条目。
+    ///
+    /// **只能按时间，不能按「当前不在场」**：锁屏时 kAXWindows 返回空列表（实测），
+    /// 按在场与否清理会在每天早上把整个档案清光 —— 那正是最需要它的时刻。
+    public mutating func prune(notSeenSince cutoff: Date) {
+        let dead = Set(seen.filter { $0.value < cutoff }.map(\.key))
+        guard !dead.isEmpty else { return }
+        for key in dead { seen[key] = nil }
+        buckets = buckets.compactMapValues { wins in
+            let kept = wins.filter { !dead.contains($0.key) }
+            return kept.isEmpty ? nil : kept
+        }
     }
 
     /// 显示器组合的指纹 = 在场 UUID 排序后拼接。
@@ -104,8 +132,10 @@ public struct WindowLayoutStore {
                       width: layout.size.width, height: layout.size.height)
     }
 
-    public mutating func record(_ layout: WindowLayout, forWindow key: String, fingerprint: String) {
+    public mutating func record(_ layout: WindowLayout, forWindow key: String,
+                                fingerprint: String, at now: Date = Date()) {
         buckets[fingerprint, default: [:]][key] = layout
+        seen[key] = now
     }
 
     public func layout(forWindow key: String, fingerprint: String) -> WindowLayout? {

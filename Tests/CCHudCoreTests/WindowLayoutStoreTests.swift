@@ -8,6 +8,8 @@ import CoreGraphics
 /// 故此层不做任何翻转。（`NSScreen.frame` 是 Cocoa 系，同一块屏坐标不同，别混用。）
 final class WindowLayoutStoreTests: XCTestCase {
     // 实测排列：两块 27 寸并排挂在笔记本上方
+    let t0 = Date(timeIntervalSince1970: 1_789_000_000)
+    let day: TimeInterval = 24 * 3600
     let builtin = ScreenBox(uuid: "BUILTIN", bounds: CGRect(x: 0, y: 0, width: 1496, height: 967))
     let left = ScreenBox(uuid: "LEFT", bounds: CGRect(x: -1137, y: -1080, width: 1920, height: 1080))
     let right = ScreenBox(uuid: "RIGHT", bounds: CGRect(x: 783, y: -1080, width: 1920, height: 1080))
@@ -155,6 +157,80 @@ final class WindowLayoutStoreTests: XCTestCase {
         defaults.set("这不是归档数据", forKey: WindowLayoutStore.archiveKey)
         let store = WindowLayoutStore(loadingFrom: defaults)
         XCTAssertTrue(store.all(fingerprint: "whatever").isEmpty, "坏档案退回空，不能让 app 起不来")
+    }
+
+    // ── 陈旧条目清理：关掉的窗口不能永远赖在档案里 ────────────────────
+    //
+    // 不能按「当前不在场就删」—— 锁屏时 kAXWindows 返回空列表(实测),那样会在每天
+    // 早上把整个档案清光。只能按「最后一次见到」的时间。
+
+    func testPruneDropsWindowsNotSeenSinceCutoff() {
+        var store = WindowLayoutStore()
+        let fp = WindowLayoutStore.fingerprint(of: [builtin, left, right])
+        let l = WindowLayout(screen: "RIGHT", offset: .zero, size: CGSize(width: 960, height: 1050))
+        store.record(l, forWindow: "old", fingerprint: fp, at: t0)
+        store.record(l, forWindow: "fresh", fingerprint: fp, at: t0.addingTimeInterval(8 * day))
+
+        store.prune(notSeenSince: t0.addingTimeInterval(7 * day))
+
+        XCTAssertNil(store.layout(forWindow: "old", fingerprint: fp))
+        XCTAssertNotNil(store.layout(forWindow: "fresh", fingerprint: fp))
+    }
+
+    func testPruneRemovesWindowFromEveryBucket() {
+        var store = WindowLayoutStore()
+        let three = WindowLayoutStore.fingerprint(of: [builtin, left, right])
+        let one = WindowLayoutStore.fingerprint(of: [builtinAlone])
+        let l = WindowLayout(screen: "RIGHT", offset: .zero, size: CGSize(width: 960, height: 1050))
+        store.record(l, forWindow: "w", fingerprint: three, at: t0)
+        store.record(l, forWindow: "w", fingerprint: one, at: t0)
+
+        store.prune(notSeenSince: t0.addingTimeInterval(day))
+
+        XCTAssertTrue(store.all(fingerprint: three).isEmpty, "窗口没了就该从所有配置的档案里消失")
+        XCTAssertTrue(store.all(fingerprint: one).isEmpty)
+    }
+
+    func testRecordingAgainRefreshesLastSeen() {
+        var store = WindowLayoutStore()
+        let fp = WindowLayoutStore.fingerprint(of: [builtin, left, right])
+        let l = WindowLayout(screen: "RIGHT", offset: .zero, size: CGSize(width: 960, height: 1050))
+        store.record(l, forWindow: "w", fingerprint: fp, at: t0)
+        store.record(l, forWindow: "w", fingerprint: fp, at: t0.addingTimeInterval(10 * day))
+
+        store.prune(notSeenSince: t0.addingTimeInterval(7 * day))
+
+        XCTAssertNotNil(store.layout(forWindow: "w", fingerprint: fp), "一直在用的窗口不能被清掉")
+    }
+
+    func testLastSeenSurvivesRoundTripThroughDefaults() {
+        var store = WindowLayoutStore()
+        let fp = WindowLayoutStore.fingerprint(of: [builtin, left, right])
+        let l = WindowLayout(screen: "RIGHT", offset: .zero, size: CGSize(width: 960, height: 1050))
+        store.record(l, forWindow: "old", fingerprint: fp, at: t0)
+
+        let defaults = UserDefaults(suiteName: "layout-lastseen")!
+        defaults.removePersistentDomain(forName: "layout-lastseen")
+        store.save(to: defaults)
+        var loaded = WindowLayoutStore(loadingFrom: defaults)
+        loaded.prune(notSeenSince: t0.addingTimeInterval(7 * day))
+
+        XCTAssertNil(loaded.layout(forWindow: "old", fingerprint: fp),
+                     "时间戳不落盘的话，每次重启所有条目都会重新变年轻，永远清不掉")
+    }
+
+    func testEntryWithoutTimestampIsStampedOnLoadNotDropped() {
+        // 造一份「有布局、没时间戳」的存档（换过格式 / 写坏了），走真实的载入路径
+        let defaults = UserDefaults(suiteName: "layout-no-ts")!
+        defaults.removePersistentDomain(forName: "layout-no-ts")
+        let json = #"{"buckets":{"BUILTIN|LEFT|RIGHT":{"w":{"screen":"RIGHT","offset":[0,30],"size":[960,1050]}}},"seen":{}}"#
+        defaults.set(json.data(using: .utf8), forKey: WindowLayoutStore.archiveKey)
+
+        var store = WindowLayoutStore(loadingFrom: defaults, now: t0)
+        store.prune(notSeenSince: t0.addingTimeInterval(-day))
+
+        XCTAssertNotNil(store.layout(forWindow: "w", fingerprint: "BUILTIN|LEFT|RIGHT"),
+                        "缺时间戳是未知而非陈旧，按刚见过补戳 —— 误删的代价是第二天窗口不归位")
     }
 
     func testUnknownWindowHasNoLayout() {

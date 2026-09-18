@@ -46,6 +46,9 @@ final class LayoutKeeper {
     /// 0.6 秒后的捕获却看见了 2 个窗口 —— 终端进程刚从睡眠里醒来，一时答不上 AX 查询。
     private static let readyRetryDelay = Duration.seconds(1)
     private static let readyRetries = 30
+    /// 陈旧条目保质期。关掉的窗口条目按时间清（不能按「当前不在场」，锁屏时那等于自毁）。
+    /// 7 天：足够跨过一个休假周末 + 几天没开某个项目窗口，又不至于让死条目越堆越多。
+    private static let entryTTL: TimeInterval = 7 * 24 * 3600
 
     /// 当前承载 Claude 会话的终端 App（由 AppDelegate 从 store 算出来）
     var hostApps: () -> [NSRunningApplication] = { [] }
@@ -160,6 +163,7 @@ final class LayoutKeeper {
             store.record(layout, forWindow: key, fingerprint: fp)
             n += 1
         }
+        store.prune(notSeenSince: Date().addingTimeInterval(-Self.entryTTL))
         store.save(to: .standard)   // 隔夜要活过 cc-hud 重启
         DebugLog.log("layout: 捕获 \(n) 个窗口 @ \(fp)")
     }
