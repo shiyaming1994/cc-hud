@@ -138,6 +138,24 @@ public struct WindowLayoutStore {
         seen[key] = now
     }
 
+    /// 一轮捕获落档：先记下这轮看见的窗口，再清掉保质期内一次都没见过的。
+    ///
+    /// **先记再清**：长假回来头一回看见某个窗口时，它的时间戳早已过期 —— 先清的话，
+    /// 它在别的显示器组合里的记录会被当成陈旧一起删掉，当晚拔线就无档可用。
+    ///
+    /// **这轮一个都没看见就不清理**：锁屏、刚唤醒时 AX 答不上来，kAXWindows 要么返回空、
+    /// 要么返回的窗口全被过滤掉（实测两种都有）。这时的「0 个」是看不见，不是都关了。
+    /// 照常清理的话，隔了保质期以上回来的那个早上（国庆实测隔了 7 天 16 小时），
+    /// 锁屏时补做的这一轮会把整个档案删光，解锁后的恢复无档可用。
+    public mutating func recordCapture(_ windows: [String: WindowLayout], fingerprint: String,
+                                       ttl: TimeInterval, at now: Date = Date()) {
+        for (key, layout) in windows {
+            record(layout, forWindow: key, fingerprint: fingerprint, at: now)
+        }
+        guard !windows.isEmpty else { return }
+        prune(notSeenSince: now.addingTimeInterval(-ttl))
+    }
+
     public func layout(forWindow key: String, fingerprint: String) -> WindowLayout? {
         buckets[fingerprint]?[key]
     }

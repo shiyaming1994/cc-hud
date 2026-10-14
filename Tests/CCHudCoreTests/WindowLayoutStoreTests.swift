@@ -233,6 +233,55 @@ final class WindowLayoutStoreTests: XCTestCase {
                         "缺时间戳是未知而非陈旧，按刚见过补戳 —— 误删的代价是第二天窗口不归位")
     }
 
+    // ── 一轮捕获落档：先记下这轮看见的，再按保质期清理 ──────────────────
+    //
+    // 一个都没看见的那轮不能清理：锁屏、刚唤醒时 AX 答不上来，「0 个」是看不见，不是都关了。
+    // 长假回来（国庆实测隔了 7 天 16 小时）插线时还在锁屏，这一轮照常清理就会把整个档案删光。
+
+    func testCaptureRoundThatSeesNothingDoesNotPrune() {
+        var store = WindowLayoutStore()
+        let fp = WindowLayoutStore.fingerprint(of: [builtin, left, right])
+        let l = WindowLayout(screen: "RIGHT", offset: .zero, size: CGSize(width: 960, height: 1050))
+        store.recordCapture(["w": l], fingerprint: fp, ttl: 7 * day, at: t0)
+
+        store.recordCapture([:], fingerprint: fp, ttl: 7 * day, at: t0.addingTimeInterval(8 * day))
+
+        XCTAssertEqual(store.layout(forWindow: "w", fingerprint: fp), l,
+                       "锁屏时的「0 个」是看不见 —— 这时清理，解锁后的恢复就无档可用")
+    }
+
+    func testCaptureRoundPrunesOnlyWindowsUnseenBeyondTTL() {
+        var store = WindowLayoutStore()
+        let fp = WindowLayoutStore.fingerprint(of: [builtin, left, right])
+        let l = WindowLayout(screen: "RIGHT", offset: .zero, size: CGSize(width: 960, height: 1050))
+        store.recordCapture(["closed": l], fingerprint: fp, ttl: 7 * day, at: t0)
+        store.recordCapture(["recent": l], fingerprint: fp, ttl: 7 * day,
+                            at: t0.addingTimeInterval(5 * day))
+
+        store.recordCapture(["open": l], fingerprint: fp, ttl: 7 * day,
+                            at: t0.addingTimeInterval(8 * day))
+
+        XCTAssertNil(store.layout(forWindow: "closed", fingerprint: fp), "8 天没见过，过了保质期")
+        XCTAssertNotNil(store.layout(forWindow: "recent", fingerprint: fp),
+                        "这轮没看见、但 3 天前还见过 —— 不能按「当前不在场」删")
+    }
+
+    func testCaptureRoundKeepsOtherBucketsOfWindowsItSees() {
+        var store = WindowLayoutStore()
+        let three = WindowLayoutStore.fingerprint(of: [builtin, left, right])
+        let one = WindowLayoutStore.fingerprint(of: [builtinAlone])
+        let atOffice = WindowLayout(screen: "RIGHT", offset: .zero, size: CGSize(width: 960, height: 1050))
+        let atHome = WindowLayout(screen: "BUILTIN", offset: CGPoint(x: 12, y: 40),
+                                  size: CGSize(width: 960, height: 900))
+        store.recordCapture(["w": atHome], fingerprint: one, ttl: 7 * day, at: t0)
+
+        // 长假回来先在三屏下看见它：得先记「见过」再清理，不然单屏那份会被当成陈旧删掉
+        store.recordCapture(["w": atOffice], fingerprint: three, ttl: 7 * day,
+                            at: t0.addingTimeInterval(8 * day))
+
+        XCTAssertEqual(store.layout(forWindow: "w", fingerprint: one), atHome, "当晚拔线还要用单屏那份")
+    }
+
     func testUnknownWindowHasNoLayout() {
         let store = WindowLayoutStore()
         XCTAssertNil(store.layout(forWindow: "never-seen",

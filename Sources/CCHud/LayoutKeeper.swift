@@ -156,16 +156,16 @@ final class LayoutKeeper {
         let screens = Self.onlineScreens()
         guard !screens.isEmpty else { return }
         let fp = WindowLayoutStore.fingerprint(of: screens)
-        var n = 0
+        var captured: [String: WindowLayout] = [:]
         for (key, el) in trackedWindows() {
             guard let frame = Self.frame(of: el),
                   let layout = WindowLayoutStore.capture(frame: frame, on: screens) else { continue }
-            store.record(layout, forWindow: key, fingerprint: fp)
-            n += 1
+            captured[key] = layout
         }
-        store.prune(notSeenSince: Date().addingTimeInterval(-Self.entryTTL))
+        // 一个都没看见的这轮不清理（锁屏时就是这样），见 recordCapture
+        store.recordCapture(captured, fingerprint: fp, ttl: Self.entryTTL)
         store.save(to: .standard)   // 隔夜要活过 cc-hud 重启
-        DebugLog.log("layout: 捕获 \(n) 个窗口 @ \(fp)")
+        DebugLog.log("layout: 捕获 \(captured.count) 个窗口 @ \(fp)")
     }
 
     // ── 恢复侧 ────────────────────────────────────────────────
