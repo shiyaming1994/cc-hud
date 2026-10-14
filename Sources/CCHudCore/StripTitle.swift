@@ -47,11 +47,16 @@ public enum StripStyle {
         }
     }
 
+    /// 深色档的 L2 / L3 用「白 + 透明度」，不用不透明的灰（原 #C0C0C8 / #8E8E97）：
+    /// 有的扩展屏上系统画状态项不做混色提亮，颜色按原值叠在桌面图上（实测三屏里右边那块）。
+    /// 不透明的中灰叠在偏亮的天空上比底色还暗，整行一半白一半灰；半透明白叠在什么底上都只会更亮。
+    /// 透明度按 #1E1E1E 深灰底折算，纯深色底上看与原值几乎一样。
+    /// 浅色档不用改：系统只在桌面图够亮时才给浅色菜单栏，深灰叠上去天然比底色暗。
     public static func color(_ ink: StripInk, dark: Bool) -> NSColor {
         switch ink {
         case .l1:      return hex(dark ? 0xFFFFFF : 0x1A1A1C)
-        case .l2:      return hex(dark ? 0xC0C0C8 : 0x4F4F57)
-        case .l3:      return hex(dark ? 0x8E8E97 : 0x6B6B72)
+        case .l2:      return dark ? white(0.72) : hex(0x4F4F57)
+        case .l3:      return dark ? white(0.50) : hex(0x6B6B72)
         case .caution: return hex(dark ? 0xFFB340 : 0x8A5300)
         case .alert:   return hex(dark ? 0xFF6257 : 0xC22A1F)
         }
@@ -82,6 +87,10 @@ public enum StripStyle {
         NSColor(srgbRed: CGFloat((v >> 16) & 0xFF) / 255,
                 green: CGFloat((v >> 8) & 0xFF) / 255,
                 blue: CGFloat(v & 0xFF) / 255, alpha: 1)
+    }
+
+    private static func white(_ alpha: CGFloat) -> NSColor {
+        NSColor(srgbRed: 1, green: 1, blue: 1, alpha: alpha)
     }
 }
 

@@ -86,6 +86,38 @@ final class StripTitleTests: XCTestCase {
         }
     }
 
+    /// 按原值叠到底色上（不做菜单栏的混色提亮）
+    private func over(_ c: NSColor, _ bg: (CGFloat, CGFloat, CGFloat)) -> (CGFloat, CGFloat, CGFloat) {
+        let s = c.usingColorSpace(.sRGB)!, a = s.alphaComponent
+        return (s.redComponent * a + bg.0 * (1 - a),
+                s.greenComponent * a + bg.1 * (1 - a),
+                s.blueComponent * a + bg.2 * (1 - a))
+    }
+
+    /// 有的扩展屏上系统画状态项不做混色提亮，颜色按原值叠在桌面图上。深色档的字要是
+    /// 不透明的中灰，叠在偏亮的天空上就比底色还暗 —— 整行一半白一半灰（实测右边那块屏）。
+    func testDarkNeutralInksNeverDarkenTheBackdrop() {
+        let backdrops: [(CGFloat, CGFloat, CGFloat)] = [
+            (0, 0, 0),
+            (0x58 / 255.0, 0x9D / 255.0, 0xB0 / 255.0),   // 右屏额度条背后的天空（截图取色）
+            (0xC8 / 255.0, 0xE0 / 255.0, 0xF0 / 255.0),   // 更浅的桌面图
+        ]
+        for ink in [StripInk.l1, .l2, .l3] {
+            for bg in backdrops {
+                let out = over(StripStyle.color(ink, dark: true), bg)
+                XCTAssertTrue(out.0 >= bg.0 - 1e-6 && out.1 >= bg.1 - 1e-6 && out.2 >= bg.2 - 1e-6,
+                              "\(ink) 叠在 \(bg) 上把底色压暗了：\(out)")
+            }
+        }
+    }
+
+    func testDarkNeutralInksKeepTheirHierarchy() {
+        let menuBar: (CGFloat, CGFloat, CGFloat) = (0x1E / 255.0, 0x1E / 255.0, 0x1E / 255.0)
+        let l = [StripInk.l1, .l2, .l3].map { over(StripStyle.color($0, dark: true), menuBar).1 }
+        XCTAssertGreaterThan(l[0], l[1], "设计稿的层级交给明度：L1 要比 L2 亮")
+        XCTAssertGreaterThan(l[1], l[2], "L2 要比 L3 亮")
+    }
+
     func testAllWeightsMapToTheSameSize() {
         for w in [StripWeight.label, .five, .seven, .regular, .alert] {
             XCTAssertEqual(StripStyle.font(w).pointSize, StripStyle.size,
