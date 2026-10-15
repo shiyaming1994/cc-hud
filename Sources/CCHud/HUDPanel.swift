@@ -18,6 +18,8 @@ final class HUDPanel: NSPanel {
     /// 用户拖动中：盯着鼠标键，松开即吸附。WindowDragGesture 是系统级窗口拖动，
     /// 松手不一定以 mouseUp 送到 app，所以轮询（只在拖动期间跑）。
     private var dragWatch: Timer?
+    /// 当前档的外形（标签 / 方框），点击按它判定是否穿透（设计文档 4.7）
+    private var shapeKind: EdgeShape.Kind = .box
     /// 悬停态由 AppDelegate 的鼠标监视器经此写入（用可见玻璃 frame 命中判定，不依赖会被内容缩放扰动的 tracking area）。
     weak var hoverState: HoverState?
     private var isHovering = false
@@ -43,7 +45,7 @@ final class HUDPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
         acceptsMouseMovedEvents = true   // app 处于 active 时，本地鼠标监视器靠它收到 mouseMoved（非 active 走全局监视器）
         // PassThroughHostingView：窗口恒为展开尺寸，静息时玻璃只占顶部、下方是透明预留区；
-        // 该子类让预留区的点击穿透到下方窗口（否则会挡住终端）。
+        // 该子类让预留区和外形外的透明角落的点击穿透到下方窗口（否则会挡住终端）。
         let host = PassThroughHostingView(rootView: rootView)
         host.layerContentsRedrawPolicy = .duringViewResize
         contentView = host
@@ -125,11 +127,18 @@ final class HUDPanel: NSPanel {
         }
     }
 
-    /// 可见玻璃高度变化（含悬停动画每帧）→ 更新命中区基准、预留区穿透阈值（PassThroughHostingView 读 visibleHeight）、
+    /// 可见玻璃高度变化（含悬停动画每帧）→ 更新命中区基准、预留区穿透阈值（PassThroughHostingView 经 visibleContentContains 读它）、
     /// 并重算系统阴影使其随玻璃高度伸缩（窗口不缩放，阴影只能靠 invalidate 跟上玻璃 alpha）。
     func setVisibleHeight(_ h: CGFloat) {
         guard h > 1, abs(h - visibleHeight) > 0.5 else { return }
         visibleHeight = h
+        invalidateShadow()
+    }
+
+    /// 换档后外形变了（标签 ↔ 方框）：点击判定跟着换，阴影重算
+    func setShape(_ kind: EdgeShape.Kind) {
+        guard kind != shapeKind else { return }
+        shapeKind = kind
         invalidateShadow()
     }
 
@@ -223,35 +232,30 @@ extension NSRect {
     }
 }
 
-/// 窗口向宿主视图声明「可见内容矩形」（窗口内容坐标系，左上原点、y 向下）：
-/// 该矩形之外是透明预留区，点击必须穿透到下方窗口。
-/// 浮窗只需按高度裁（矩形宽 = 整窗）；留成矩形而非单个高度，是为了将来若有比窗口窄的
-/// 可见区还能用同一套判据（刘海岛曾是这样，已删）。
+/// 窗口向宿主视图声明「哪些点落在可见内容上」（窗口内容坐标系，左上原点、y 向下）：
+/// 其余是透明预留区或外形外的透明角落，点击必须穿透到下方窗口。
 @MainActor
 protocol VisibleContentProviding: AnyObject {
-    var visibleContentRect: CGRect { get }
+    func visibleContentContains(_ point: CGPoint) -> Bool
 }
 
 extension HUDPanel: VisibleContentProviding {
-    /// 玻璃顶对齐、占满窗口宽度。hitTest 用显式四边比较保证闭区间，与旧的「只比高度」判据等价。
-    var visibleContentRect: CGRect {
-        CGRect(x: 0, y: 0, width: frame.width, height: visibleHeight)
+    /// 可见玻璃 = 顶对齐、宽满窗口、高 visibleHeight 的那块，再按真实外形裁：
+    /// 外翻弧外侧、圆头外侧的透明角落不接点击（设计文档 4.7）。
+    func visibleContentContains(_ point: CGPoint) -> Bool {
+        EdgeShape.path(shapeKind, in: CGSize(width: frame.width, height: visibleHeight)).contains(point)
     }
 }
 
 /// 宿主视图：窗口恒为展开尺寸，静息时可见内容只占其中一块，其余是透明预留区。
-/// 让预留区的点击**穿透**到下方窗口（不然会挡住终端 / 菜单栏）；可见矩形内正常命中 SwiftUI 子视图。
+/// 让预留区和外形外透明角落的点击**穿透**到下方窗口（不然会挡住终端 / 菜单栏）；外形内正常命中 SwiftUI 子视图。
 final class PassThroughHostingView<V: View>: NSHostingView<V> {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let provider = window as? VisibleContentProviding else { return super.hitTest(point) }
         let local = convert(point, from: superview)
-        // 统一到窗口内容坐标（左上原点、y 向下），与 visibleContentRect 同系
+        // 统一到窗口内容坐标（左上原点、y 向下），与 visibleContentContains 同系
         let p = CGPoint(x: local.x, y: isFlipped ? local.y : bounds.height - local.y)
-        // 0.5 容差沿用旧实现；显式四边比较而非 CGRect.contains ——
-        // contains 对 max 边排他，会让 maxY+0.5 那一行从"命中"变成"穿透"，与旧判据不等价
-        let r = provider.visibleContentRect
-        guard p.x >= r.minX - 0.5, p.x <= r.maxX + 0.5,
-              p.y >= r.minY - 0.5, p.y <= r.maxY + 0.5 else { return nil }
+        guard provider.visibleContentContains(p) else { return nil }
         return super.hitTest(point)
     }
 }

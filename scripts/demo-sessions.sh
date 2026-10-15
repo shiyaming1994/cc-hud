@@ -2,7 +2,8 @@
 # 注入/清除一批模拟会话，供手动体验滚动、拖拽、状态样式。
 # 用法：./scripts/demo-sessions.sh add | clear
 # 假会话不带 claudePid（存活检查跳过），会一直留到 clear 或 app 重启。
-SOCK="$HOME/.claude/cc-hud/hud.sock"
+# 默认打生产 socket；给开发构建造假会话时传 CC_HUD_SOCK=~/.claude/cc-hud/hud-dev.sock
+SOCK="${CC_HUD_SOCK:-$HOME/.claude/cc-hud/hud.sock}"
 send() { printf '%s' "$1" | python3 -c "
 import socket, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

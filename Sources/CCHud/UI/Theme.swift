@@ -21,7 +21,6 @@ enum Theme {
     static let rowHover = Color.white.opacity(0.055)        // --row-hover
     static let permissionSoft = Color(red: 1.0, green: 0.690, blue: 0.180).opacity(0.16)    // --st-permission-soft
     static let permissionHover = Color(red: 1.0, green: 0.690, blue: 0.180).opacity(0.22)   // .row.is-permission:hover
-    static let radius: CGFloat = 12
 
     static func statusColor(_ s: SessionStatus) -> Color {
         switch s {

@@ -149,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                onRowTap: { session in JumpService.jump(to: session) },
                                onSizeChange: { size in panelRef.panel?.applyContentSize(size) },
                                onVisibleHeightChange: { h in panelRef.panel?.setVisibleHeight(h) },
+                               onShapeChange: { kind in panelRef.panel?.setShape(kind) },
                                hover: hoverState)
         let panel = HUDPanel(rootView: root)
         panel.hoverState = hoverState
