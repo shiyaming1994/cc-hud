@@ -193,12 +193,18 @@ final class HUDPanel: NSPanel {
         return (primary, EdgeDock.defaultTop(visibleFrame: primary.visibleFrame))
     }
 
-    /// 程序移窗的唯一出口：标记为非用户拖动；尺寸变了重算系统阴影
+    /// 程序移窗的唯一出口：标记为非用户拖动；尺寸变了重算系统阴影。
+    /// 走零时长动画组、不直接 setFrame：松手吸附的 0.2 秒动画还在跑时，直接 setFrame 会被动画剩下的帧盖回去
+    /// （松手后马上点开列表，窗口就卡在标签大小）。零时长的 animator().setFrame 当场生效、顶掉进行中的动画，
+    /// 移动/缩放通知也和直接 setFrame 一样在调用返回前发完，programmaticMove 照样罩得住。
     private func place(_ f: NSRect) {
         guard f != frame else { return }
         let resized = f.size != frame.size
         programmaticMove = true
-        setFrame(f, display: true)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            animator().setFrame(f, display: true)
+        }
         programmaticMove = false
         if resized { invalidateShadow() }
     }

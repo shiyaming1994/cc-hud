@@ -9,5 +9,6 @@ let package = Package(
         .executableTarget(name: "cc-hud-emit", dependencies: ["CCHudCore"], path: "Sources/cc-hud-emit"),
         .executableTarget(name: "CCHud", dependencies: ["CCHudCore"], path: "Sources/CCHud"),
         .testTarget(name: "CCHudCoreTests", dependencies: ["CCHudCore"]),
+        .testTarget(name: "CCHudTests", dependencies: ["CCHud"]),
     ]
 )
